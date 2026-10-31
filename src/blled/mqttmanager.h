@@ -44,7 +44,8 @@ bool mqttTaskRunning = false;
 
 const uint32_t MQTT_BACKOFF_MIN_MS = 2000;
 const uint32_t MQTT_BACKOFF_MAX_MS = 60000;
-const uint32_t MQTT_SILENCE_TIMEOUT_MS = 120000; // printers report at least every few seconds when awake
+const uint32_t MQTT_SILENCE_PROBE_MS = 90000;    // ask for a report after this much silence
+const uint32_t MQTT_SILENCE_TIMEOUT_MS = 150000;  // reconnect if the ask went unanswered too
 
 uint32_t mqttBackoffMs = MQTT_BACKOFF_MIN_MS;
 unsigned long mqttNextAttemptMs = 0;
@@ -213,10 +214,26 @@ void mqttTask(void *parameter)
             publishChamberLight(light == 1);
         }
 
-        // Watchdog: a TCP connection can look alive while the printer has stopped talking to us
-        if (millis() - printerVariables.lastMqttMsgMs > MQTT_SILENCE_TIMEOUT_MS)
+        // Watchdog: a TCP connection can look alive while the printer has stopped talking to us.
+        // Some printers go quiet when idle, so first ask for a report, and only reconnect if
+        // that gets no answer either.
+        static bool silenceProbeSent = false;
+        unsigned long quietMs = millis() - printerVariables.lastMqttMsgMs;
+        if (quietMs < MQTT_SILENCE_PROBE_MS)
         {
-            LogSerial.printf("[MQTT] No data for %lu s - reconnecting\n", (unsigned long)(MQTT_SILENCE_TIMEOUT_MS / 1000));
+            silenceProbeSent = false;
+        }
+        else if (!silenceProbeSent)
+        {
+            silenceProbeSent = true;
+            if (printerConfig.debugingchange)
+                LogSerial.println(F("[MQTT] Printer quiet for 90 s - asking for a status report"));
+            publishPushAll();
+        }
+        else if (quietMs > MQTT_SILENCE_TIMEOUT_MS)
+        {
+            LogSerial.printf("[MQTT] No data for %lu s - reconnecting\n", quietMs / 1000);
+            silenceProbeSent = false;
             mqttClient.disconnect();
             mqttNextAttemptMs = millis();
         }

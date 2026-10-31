@@ -479,6 +479,14 @@ void fillStatusJson(JsonDocument &doc)
     doc["lastMsgAgo"] = printerVariables.lastMqttMsgMs ? (long)((millis() - printerVariables.lastMqttMsgMs) / 1000) : -1;
     doc["offlineFor"] = (!printerVariables.online && printerVariables.disconnectMQTTms) ? (long)((millis() - printerVariables.disconnectMQTTms) / 1000) : 0;
 
+    // Which printer we're set up for, and what the network scan says is really at that address
+    doc["printerIP"] = printerConfig.printerIP;
+    doc["serial"] = printerConfig.serialNumber;
+    const char *seen = bblSerialAt(printerConfig.printerIP);
+    doc["discoveredSerial"] = seen;
+    doc["serialMismatch"] = strlen(seen) > 0 && strcmp(seen, printerConfig.serialNumber) != 0;
+    doc["brightness"] = printerConfig.brightness;
+
     // Printer
     doc["stg_cur"] = printerVariables.stage;
     doc["gcodeState"] = printerVariables.gcodeState;
@@ -542,6 +550,67 @@ void handleApiStatus(AsyncWebServerRequest *request)
     String json;
     serializeJson(doc, json);
     request->send(200, "application/json", json);
+}
+
+// One-tap fix: replace the saved serial with the one the printer at the configured IP announces
+void handleUseDiscoveredSerial(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+    if (!fromOwnPage(request))
+        return refuseForeign(request);
+
+    const char *seen = bblSerialAt(printerConfig.printerIP);
+    if (strlen(seen) == 0)
+    {
+        request->send(409, "text/plain", "No printer has answered from that address yet.");
+        return;
+    }
+    LogSerial.printf("[Setup] Serial changed from %s to %s (announced by %s). Restarting...\n",
+                     printerConfig.serialNumber, seen, printerConfig.printerIP);
+    strlcpy(printerConfig.serialNumber, seen, sizeof(printerConfig.serialNumber));
+    saveFileSystem();
+    request->send(200, "text/plain", "Serial updated. Restarting...");
+    shouldRestart = true;
+    restartRequestTime = millis();
+}
+
+// Quick controls from the Status page: light mode and brightness, saved like the settings page
+void handleQuick(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+    if (!fromOwnPage(request))
+        return refuseForeign(request);
+
+    if (request->hasParam("mode", true))
+    {
+        String mode = request->getParam("mode", true)->value();
+        if (mode != "auto" && mode != "white" && mode != "rainbow")
+        {
+            request->send(400, "text/plain", "Unknown mode");
+            return;
+        }
+        printerConfig.maintMode = (mode == "white");
+        printerConfig.discoMode = (mode == "rainbow");
+        printerConfig.testcolorEnabled = false;
+        printerConfig.debugwifi = false;
+        printerConfig.replicatestate = (mode == "auto"); // the modes are pick-one, as on the settings page
+        printerConfig.isIdleOFFActive = false;
+        printerConfig.inactivityStartms = millis();
+    }
+    if (request->hasParam("brightness", true))
+    {
+        printerConfig.brightness = constrain((int)request->getParam("brightness", true)->value().toInt(), 0, 100);
+    }
+
+    saveFileSystem();
+    printerConfig.replicate_update = true;
+    printerConfig.maintMode_update = true;
+    printerConfig.discoMode_update = true;
+    printerConfig.testcolor_update = true;
+    requestLedUpdate();
+    request->send(200, "text/plain", "OK");
 }
 
 void handleStatusPage(AsyncWebServerRequest *request)
@@ -734,6 +803,8 @@ void setupWebserver()
     } });
     webServer.on("/status", HTTP_GET, handleStatusPage);
     webServer.on("/api/status", HTTP_GET, handleApiStatus);
+    webServer.on("/api/useDiscoveredSerial", HTTP_POST, handleUseDiscoveredSerial);
+    webServer.on("/api/quick", HTTP_POST, handleQuick);
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);

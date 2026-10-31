@@ -13,7 +13,7 @@
     <div id="container">
         <div id="header">
             <img id="logo" src="/blled.svg" alt="BLLED Logo">
-            <h1>BLLED WiFi Setup</h1>
+            <h1>Wi-Fi and printer</h1>
         </div>
 
         <div id="networks">Loading...</div>
@@ -34,7 +34,7 @@
                 <input type="text" id="printerIP" placeholder="e.g. 192.168.1.100" style="flex: 2;">
 
                 <button type="button" id="openPrinterList" title="Search printer"
-                    style="flex: 1; margin-bottom: 8px; background-color: #28a745; cursor: pointer; display: none; width: 29px; height: 29px; padding: 0;">
+                    class="ghost" style="flex: 1; margin-bottom: 12px; display: none; width: auto; padding: 10px;">
                     Printer Discovery
                 </button>
             </div>
@@ -54,7 +54,7 @@
 
             <div style="display: flex; gap: 10px; justify-content: space-between;">
                 <button type="submit">Save</button>
-                <button type="button" style="background-color: #6c757d;" onclick="location.href='/'">Back</button>
+                <button type="button" class="ghost" onclick="location.href='/'">Back</button>
             </div>
         </form>
     </div>
@@ -71,9 +71,9 @@
     align-items: center;
 ">
         <div style="
-        background-color: #fff;
+        background-color: var(--surface); border: 1px solid var(--line);
         padding: 20px;
-        border-radius: 8px;
+        border-radius: 18px;
         max-width: 400px;
         width: 90%;
         box-shadow: 0 2px 10px rgba(0,0,0,0.3);
@@ -81,7 +81,7 @@
             <h3 style="margin-top: 0;">Select Printer</h3>
             <div id="printerList" style="max-height: 300px; overflow-y: auto;"></div>
             <div style="text-align: right; margin-top: 10px;">
-                <button onclick="closePrinterModal()">Close</button>
+                <button class="ghost" onclick="closePrinterModal()">Close</button>
             </div>
         </div>
     </div>
@@ -95,10 +95,10 @@
 
             return `
                 <svg width="16" height="12" viewBox="0 0 20 16" preserveAspectRatio="xMidYMid meet">
-                    <rect x="0" y="12" width="3" height="4" ${level >= 1 ? 'fill="#444"' : 'fill="#ccc"'}/>
-                    <rect x="5" y="8" width="3" height="8" ${level >= 2 ? 'fill="#444"' : 'fill="#ccc"'}/>
-                    <rect x="10" y="4" width="3" height="12" ${level >= 3 ? 'fill="#444"' : 'fill="#ccc"'}/>
-                    <rect x="15" y="0" width="3" height="16" ${level >= 4 ? 'fill="#444"' : 'fill="#ccc"'}/>
+                    <rect x="0" y="12" width="3" height="4" ${level >= 1 ? 'fill="currentColor"' : 'fill="currentColor" opacity=".25"'}/>
+                    <rect x="5" y="8" width="3" height="8" ${level >= 2 ? 'fill="currentColor"' : 'fill="currentColor" opacity=".25"'}/>
+                    <rect x="10" y="4" width="3" height="12" ${level >= 3 ? 'fill="currentColor"' : 'fill="currentColor" opacity=".25"'}/>
+                    <rect x="15" y="0" width="3" height="16" ${level >= 4 ? 'fill="currentColor"' : 'fill="currentColor" opacity=".25"'}/>
                 </svg>`;
         }
 
@@ -138,7 +138,7 @@
                     color = "#17a2b8";
             }
 
-            toast.style.backgroundColor = color;
+            toast.className = (type.toLowerCase() === "error") ? "error" : "";
             icon.textContent = iconChar;
             msg.textContent = message;
 

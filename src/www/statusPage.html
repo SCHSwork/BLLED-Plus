@@ -3,119 +3,129 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1f262e">
     <title>BLLED Status</title>
     <link rel="stylesheet" href="/style.css">
     <style>
-        .card { background: #fff; border-radius: 6px; box-shadow: 0 0 10px rgba(0,0,0,.3); padding: 14px; margin-bottom: 12px; color: #333; }
-        .card h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #777; }
-        .row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-        .row:last-child { border-bottom: 0; }
-        .row span:last-child { font-weight: bold; text-align: right; font-variant-numeric: tabular-nums; }
-        .state { display: flex; align-items: center; gap: 14px; }
-        #swatch { width: 64px; height: 64px; border-radius: 50%; flex: none; border: 3px solid #eee; background: #000; transition: background-color .3s; }
-        #swatch.breathe { animation: breathe 3s ease-in-out infinite; }
-        #swatch.blink { animation: blink 1s steps(1) infinite; }
-        #swatch.rainbow { animation: rainbow 12s linear infinite; }
-        @keyframes breathe { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
-        @keyframes blink { 0% { opacity: 1 } 50% { opacity: .15 } }
-        @keyframes rainbow { 0% { filter: hue-rotate(0) } 100% { filter: hue-rotate(360deg) } }
-        #stateName { font-size: 20px; font-weight: bold; margin: 0 0 2px; }
-        #stateSub { font-size: 13px; color: #666; }
-        .bar { height: 14px; background: #e6e6e6; border-radius: 7px; overflow: hidden; margin: 8px 0 4px; }
-        .bar > div { height: 100%; width: 0; background: #28a745; transition: width .6s; }
-        #job { font-size: 13px; color: #555; overflow-wrap: anywhere; }
-        .temps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
-        .temps div { background: #f6f6f6; border-radius: 4px; padding: 8px 4px; }
-        .temps b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
-        .temps small { color: #777; font-size: 11px; }
-        .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; color: #fff; background: #999; }
-        .ok { background: #28a745; } .warn { background: #e0a800; } .bad { background: #c00; }
-        #alert { display: none; background: #c00; color: #fff; }
+        .stat { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
+        .group > h2 + .stat { border-top: 0; }
+        .stat span:first-child { color: var(--muted); }
+        .stat span:last-child { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+        .job { padding: 2px 16px 0; font-weight: 600; overflow-wrap: anywhere; }
+        .bar { height: 10px; margin: 12px 16px 6px; background: var(--raised); border-radius: 5px; overflow: hidden; }
+        .bar > div { height: 100%; width: 0; background: var(--led); transition: width .6s; }
+        .temps { display: grid; grid-template-columns: repeat(3, 1fr); padding: 6px 8px 14px; }
+        .temps div { text-align: center; }
+        .temps b { display: block; font-size: 30px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .temps small { color: var(--muted); font-size: 13px; }
+        .ok-t { color: var(--good); } .warn-t { color: var(--warn); } .bad-t { color: var(--bad); }
+        #alert { display: none; padding: 14px 16px; border-color: var(--bad); }
         #alert.show { display: block; }
-        .nav { display: flex; gap: 8px; }
+        #alert b { display: block; color: var(--bad); }
+        #alert button { margin: 12px 0 0; }
+        #alert button[hidden] { display: none; }
+        .quick { padding: 14px 16px 6px; }
+        .quick .seg { display: flex; width: 100%; }
+        .quick .seg label { flex: 1; text-align: center; }
+        .quick .seg span { padding: 9px 6px; font-size: 14px; }
+        .quick .bright { margin-top: 10px; font-weight: 600; }
     </style>
 </head>
 
 <body>
-    <canvas id="particleCanvas"></canvas>
-    <div id="container">
-        <div id="header">
-            <img id="logo" src="/blled.svg" alt="">
-            <h1 id="title">BLLED Status</h1>
+    <main class="page">
+        <header class="top">
+            <div>
+                <h1 id="title">BLLED</h1>
+                <p class="state" id="linkState">Connecting…</p>
+            </div>
+            <nav class="pages" aria-label="Pages">
+                <a href="/status" aria-current="page">Status</a>
+                <a href="/">Lights</a>
+            </nav>
+        </header>
+
+        <section class="hero" aria-label="LED strip">
+            <div class="strip off" id="strip" role="img" aria-label="Current LED color"></div>
+            <div class="caption"><b id="stateName">Waiting for the controller</b><span id="stateFx"></span></div>
+        </section>
+
+        <div class="group" id="alert" role="alert"><b id="alertTitle"></b><span id="alertText"></span>
+            <button type="button" id="fixSerial" hidden></button>
         </div>
 
-        <div class="card" id="alert" role="alert"></div>
-
-        <div class="card">
-            <div class="state">
-                <div id="swatch" title="What the LED strip is showing"></div>
-                <div>
-                    <p id="stateName">Connecting…</p>
-                    <div id="stateSub">Waiting for the controller</div>
-                </div>
+        <div class="group quick" aria-label="Quick controls">
+            <div class="seg" role="radiogroup" aria-label="What the strip does">
+                <label><input type="radio" name="qmode" value="auto"><span>Follow printer</span></label>
+                <label><input type="radio" name="qmode" value="white"><span>Always on</span></label>
+                <label><input type="radio" name="qmode" value="rainbow"><span>Rainbow</span></label>
+            </div>
+            <div class="bright">
+                <label for="qbright">Brightness</label>
+                <input type="range" id="qbright" min="0" max="100" value="100">
+                <output id="qbrightOut" for="qbright">–</output>
             </div>
         </div>
 
-        <div class="card" id="printCard" hidden>
-            <h3>Print</h3>
-            <div id="job"></div>
+        <div class="group" id="printCard" hidden>
+            <h2>Print</h2>
+            <div class="job" id="job"></div>
             <div class="bar"><div id="bar"></div></div>
-            <div class="row"><span>Progress</span><span id="pct">–</span></div>
-            <div class="row"><span>Layer</span><span id="layer">–</span></div>
-            <div class="row"><span>Time left</span><span id="eta">–</span></div>
+            <div class="stat"><span>Progress</span><span id="pct">–</span></div>
+            <div class="stat"><span>Layer</span><span id="layer">–</span></div>
+            <div class="stat"><span>Time left</span><span id="eta">–</span></div>
         </div>
 
-        <div class="card">
-            <h3>Temperatures</h3>
+        <div class="group">
+            <h2>Temperatures</h2>
             <div class="temps">
-                <div><small>Nozzle</small><b id="tNozzle">–</b><small id="tNozzleT"></small></div>
-                <div><small>Bed</small><b id="tBed">–</b><small id="tBedT"></small></div>
-                <div><small>Chamber</small><b id="tChamber">–</b><small>&nbsp;</small></div>
+                <div><b id="tNozzle">–</b><small>Nozzle <span id="tNozzleT"></span></small></div>
+                <div><b id="tBed">–</b><small>Bed <span id="tBedT"></span></small></div>
+                <div><b id="tChamber">–</b><small>Chamber</small></div>
             </div>
         </div>
 
-        <div class="card">
-            <h3>Connection</h3>
-            <div class="row"><span>Printer (MQTT)</span><span id="mqtt"><span class="pill">…</span></span></div>
-            <div class="row"><span>Last message</span><span id="lastMsg">–</span></div>
-            <div class="row"><span>Wi-Fi signal</span><span id="rssi">–</span></div>
-            <div class="row"><span>Reconnects / Wi-Fi drops</span><span id="drops">–</span></div>
-            <div class="row"><span>Door</span><span id="door">–</span></div>
-            <div class="row"><span>Chamber light</span><span id="chamber">–</span></div>
+        <div class="group">
+            <h2>Connection</h2>
+            <div class="stat"><span>Printer</span><span id="mqtt">–</span></div>
+            <div class="stat"><span>Last message</span><span id="lastMsg">–</span></div>
+            <div class="stat"><span>Wi-Fi signal</span><span id="rssi">–</span></div>
+            <div class="stat"><span>Reconnects</span><span id="drops">–</span></div>
+            <div class="stat"><span>Door</span><span id="door">–</span></div>
+            <div class="stat"><span>Chamber light</span><span id="chamber">–</span></div>
         </div>
 
-        <div class="card">
-            <h3>Controller</h3>
-            <div class="row"><span>LED mode</span><span id="mode">–</span></div>
-            <div class="row"><span>Uptime</span><span id="uptime">–</span></div>
-            <div class="row"><span>Free memory</span><span id="heap">–</span></div>
-            <div class="row"><span>Firmware</span><span id="fw">–</span></div>
+        <div class="group">
+            <h2>Controller</h2>
+            <div class="stat"><span>Light mode</span><span id="mode">–</span></div>
+            <div class="stat"><span>Running for</span><span id="uptime">–</span></div>
+            <div class="stat"><span>Free memory</span><span id="heap">–</span></div>
+            <div class="stat"><span>Firmware</span><span id="fw">–</span></div>
         </div>
 
-        <div class="nav">
-            <button type="button" onclick="location.href='/'">Settings</button>
-            <button type="button" onclick="window.open('/webserial','_blank')">Log</button>
+        <div class="group links">
+            <a href="/webserial" target="_blank">Open the log</a>
         </div>
-    </div>
+    </main>
 
-    <script src="particleCanvas.js"></script>
     <script>
         const STAGES = {
-            0: 'Printing', 1: 'Auto bed leveling', 2: 'Preheating bed', 3: 'Sweeping XY mech mode',
-            4: 'Changing filament', 5: 'M400 pause', 6: 'Paused: filament runout', 7: 'Heating hotend',
-            8: 'Calibrating extrusion', 9: 'Scanning bed surface', 10: 'Inspecting first layer',
-            11: 'Identifying build plate', 12: 'Calibrating Micro Lidar', 13: 'Homing toolhead',
-            14: 'Cleaning nozzle tip', 15: 'Checking extruder temp', 16: 'Paused by user',
-            17: 'Paused: front cover off', 18: 'Calibrating Micro Lidar', 19: 'Calibrating extrusion flow',
-            20: 'Paused: nozzle temp fault', 21: 'Paused: bed temp fault', 22: 'Unloading filament',
+            0: 'Printing', 1: 'Auto bed leveling', 2: 'Preheating the bed', 3: 'Sweeping XY mech mode',
+            4: 'Changing filament', 5: 'Paused (M400)', 6: 'Paused: filament ran out', 7: 'Heating the hotend',
+            8: 'Calibrating extrusion', 9: 'Scanning the bed', 10: 'Inspecting the first layer',
+            11: 'Identifying the build plate', 12: 'Calibrating the lidar', 13: 'Homing the toolhead',
+            14: 'Cleaning the nozzle', 15: 'Checking extruder temperature', 16: 'Paused',
+            17: 'Paused: front cover off', 18: 'Calibrating the lidar', 19: 'Calibrating extrusion flow',
+            20: 'Paused: nozzle temperature fault', 21: 'Paused: bed temperature fault', 22: 'Unloading filament',
             23: 'Paused: skipped step', 24: 'Loading filament', 25: 'Motor noise calibration',
-            26: 'Paused: AMS lost', 27: 'Paused: heatbreak fan', 28: 'Paused: chamber temp',
-            29: 'Cooling chamber', 30: 'Paused by G-code', 31: 'Motor noise showoff',
-            32: 'Paused: nozzle covered', 33: 'Paused: cutter error', 34: 'Paused: first layer error',
+            26: 'Paused: AMS lost', 27: 'Paused: heatbreak fan', 28: 'Paused: chamber temperature',
+            29: 'Cooling the chamber', 30: 'Paused by G-code', 31: 'Motor noise showoff',
+            32: 'Paused: nozzle covered', 33: 'Paused: cutter error', 34: 'Paused: first-layer problem',
             35: 'Paused: nozzle clog'
         };
-        const MODES = { auto: 'Following printer', maintenance: 'Maintenance (always on)', rgbcycle: 'RGB cycle', test: 'Test color', wifidebug: 'Wi-Fi strength', 'idle-off': 'Idle (lights off)' };
+        const MODES = { auto: 'Following the printer', maintenance: 'Always on', rgbcycle: 'Rainbow', test: 'Test color', wifidebug: 'Showing Wi-Fi signal', 'idle-off': 'Off while idle' };
+        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow' };
         const $ = id => document.getElementById(id);
         const set = (id, v) => { $(id).textContent = v; };
 
@@ -127,85 +137,148 @@
             if (m) return m + 'm ' + (s % 60) + 's';
             return s + 's';
         }
-        function temp(v) { return (v || v === 0) ? Math.round(v) + '°' : '–'; }
-        function pill(text, cls) { return '<span class="pill ' + cls + '">' + text + '</span>'; }
+        const temp = v => (v || v === 0) ? Math.round(v) + '°' : '–';
+        function mix(hex, ww, cw) {
+            const n = parseInt((hex || '#000000').slice(1), 16) || 0;
+            let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+            r = Math.min(255, r + ww + cw * 0.9); g = Math.min(255, g + ww * 0.72 + cw * 0.95); b = Math.min(255, b + ww * 0.38 + cw);
+            return { css: `rgb(${r | 0},${g | 0},${b | 0})`, off: r + g + b < 6 };
+        }
+        function tone(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; }
 
         function render(d) {
-            set('title', (d.host || 'BLLED') + ' Status');
+            set('title', d.host || 'BLLED');
 
-            // State headline
             const idle = d.stg_cur === -1 || d.stg_cur === 255;
             let name = STAGES[d.stg_cur] || (idle ? 'Idle' : 'Stage ' + d.stg_cur);
-            if (d.gcodeState === 'FINISH' && idle) name = 'Finished';
-            else if (d.gcodeState === 'FAILED' && idle) name = 'Cancelled';
+            if (idle && d.gcodeState === 'FINISH') name = 'Finished';
+            else if (idle && d.gcodeState === 'FAILED') name = 'Cancelled';
             else if (d.gcodeState === 'PAUSE' && d.stg_cur === 0) name = 'Paused';
-            if (!d.printerConnection) name = d.mqttAuthFailed ? 'Access code refused' : 'Printer offline';
+            else if (d.stg_cur === 0 && d.gcodeState !== 'RUNNING') name = d.gcodeState === 'FINISH' ? 'Finished' : 'Idle';
+            if (!d.printerConnection) name = d.mqttAuthFailed ? 'The printer refused the access code' : 'Printer offline';
             set('stateName', name);
-            set('stateSub', 'LED ' + d.ledFx + (d.ledWW || d.ledCW ? ' · white ' + d.ledWW + '/' + d.ledCW : ''));
 
-            // LED swatch: show RGB, or a white tone when only the white channels are on
-            const sw = $('swatch');
-            const rgbOff = d.ledRGB === '#000000';
-            sw.style.backgroundColor = rgbOff && (d.ledWW || d.ledCW)
-                ? 'rgb(' + Math.min(255, d.ledWW + d.ledCW) + ',' + Math.min(255, Math.round(d.ledWW * .85 + d.ledCW)) + ',' + Math.min(255, Math.round(d.ledWW * .6 + d.ledCW)) + ')'
-                : d.ledRGB;
-            sw.className = ['breathe', 'blink', 'rainbow'].includes(d.ledFx) ? d.ledFx : '';
+            const m = mix(d.ledRGB, d.ledWW, d.ledCW);
+            const rainbow = d.ledFx === 'rainbow';
+            $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow'].includes(d.ledFx) ? ' ' + d.ledFx : '');
+            document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
+            set('stateFx', FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 
-            // Alert
-            const al = $('alert');
-            if (!d.printerConnection && d.mqttAuthFailed) {
-                al.textContent = 'The printer rejected the access code. Check it on the printer screen (Settings → WLAN) and update it under WiFi & Printer Setup.';
-                al.classList.add('show');
+            const ls = $('linkState');
+            ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');
+            ls.textContent = d.printerConnection ? 'Connected to the printer' : (d.mqttAuthFailed ? 'Access code refused' : 'Printer offline');
+
+            // Problems first
+            let title = '', text = '';
+            const fix = $('fixSerial');
+            fix.hidden = true;
+            if (d.serialMismatch) {
+                title = 'The saved serial number belongs to a different printer';
+                text = 'The printer at ' + d.printerIP + ' is ' + d.discoveredSerial + ', but the controller is set to ' + (d.serial || 'nothing') + ', so it can’t hear that printer.';
+                fix.textContent = 'Use ' + d.discoveredSerial;
+                fix.hidden = false;
+            } else if (!d.printerConnection && d.mqttAuthFailed) {
+                title = 'The printer refused the access code';
+                text = 'Check the code on the printer under Settings → WLAN, then update it in Wi-Fi and printer connection.';
+            } else if (d.printerConnection && d.lastMsgAgo > 60) {
+                title = 'Connected, but the printer isn’t sending anything';
+                text = 'The serial number is probably for a different printer. Check it in Wi-Fi and printer connection.';
             } else if (d.hms) {
-                al.textContent = 'HMS ' + d.hms + ': HMS_' + (d.hmsCode || '');
-                al.classList.add('show');
-            } else al.classList.remove('show');
+                title = 'Printer ' + d.hms.toLowerCase() + ' warning';
+                text = 'HMS_' + (d.hmsCode || '') + '. Look it up on the printer screen or in the Bambu wiki.';
+            }
+            set('alertTitle', title); set('alertText', text);
+            $('alert').classList.toggle('show', !!title);
 
-            // Print card
-            const active = d.printerConnection && d.percent >= 0 && (d.gcodeState === 'RUNNING' || d.gcodeState === 'PAUSE' || d.gcodeState === 'PREPARE');
+            const active = d.printerConnection && d.percent >= 0 && ['RUNNING', 'PAUSE', 'PREPARE'].includes(d.gcodeState);
             $('printCard').hidden = !active;
             if (active) {
                 set('job', d.job || '');
                 $('bar').style.width = d.percent + '%';
                 set('pct', d.percent + '%');
-                set('layer', d.layer >= 0 ? d.layer + ' / ' + d.totalLayers : '–');
+                set('layer', d.layer >= 0 ? d.layer + ' of ' + d.totalLayers : '–');
                 set('eta', d.remainingMins >= 0 ? dur(d.remainingMins * 60) : '–');
             }
 
-            // Temps
-            set('tNozzle', temp(d.nozzleTemp)); set('tNozzleT', d.nozzleTarget ? '→ ' + temp(d.nozzleTarget) : 'off');
-            set('tBed', temp(d.bedTemp)); set('tBedT', d.bedTarget ? '→ ' + temp(d.bedTarget) : 'off');
+            set('tNozzle', temp(d.nozzleTemp)); set('tNozzleT', d.nozzleTarget ? 'to ' + temp(d.nozzleTarget) : '');
+            set('tBed', temp(d.bedTemp)); set('tBedT', d.bedTarget ? 'to ' + temp(d.bedTarget) : '');
             set('tChamber', temp(d.chamberTemp));
 
-            // Connection
-            $('mqtt').innerHTML = d.printerConnection ? pill('Connected', 'ok')
-                : d.mqttAuthFailed ? pill('Refused', 'bad') : pill('Offline ' + dur(d.offlineFor), 'bad');
+            tone('mqtt', d.printerConnection ? 'Connected' : d.mqttAuthFailed ? 'Refused' : 'Offline for ' + dur(d.offlineFor), d.printerConnection ? 'ok-t' : 'bad-t');
             set('lastMsg', d.lastMsgAgo >= 0 ? dur(d.lastMsgAgo) + ' ago' : '–');
-            const q = d.wifi_rssi >= -60 ? 'ok' : d.wifi_rssi >= -72 ? 'warn' : 'bad';
-            $('rssi').innerHTML = pill(d.wifi_rssi + ' dBm', q);
-            set('drops', Math.max(0, d.mqttConnects - 1) + ' / ' + d.wifiDrops);
+            tone('rssi', d.wifi_rssi + ' dBm, ' + (d.wifi_rssi >= -60 ? 'strong' : d.wifi_rssi >= -72 ? 'fair' : 'weak'),
+                d.wifi_rssi >= -60 ? 'ok-t' : d.wifi_rssi >= -72 ? 'warn-t' : 'bad-t');
+            set('drops', 'Printer ' + Math.max(0, d.mqttConnects - 1) + ', Wi-Fi ' + d.wifiDrops);
             set('door', d.doorOpen ? 'Open' : 'Closed');
             set('chamber', d.chamberLight ? 'On' : 'Off');
 
-            // Controller
             set('mode', MODES[d.mode] || d.mode);
+
+            // Quick controls follow the controller, except while someone is dragging the slider
+            if (!quickBusy) {
+                const qm = d.mode === 'maintenance' ? 'white' : d.mode === 'rgbcycle' ? 'rainbow' : (d.mode === 'auto' || d.mode === 'idle-off') ? 'auto' : '';
+                document.querySelectorAll('input[name=qmode]').forEach(r => r.checked = r.value === qm);
+                if (d.brightness !== undefined && document.activeElement !== $('qbright')) {
+                    $('qbright').value = d.brightness;
+                    set('qbrightOut', d.brightness + '%');
+                }
+            }
             set('uptime', dur(d.uptime));
             set('heap', Math.round(d.heap / 1024) + ' KB');
             set('fw', d.fw);
         }
 
-        let ws, retry = 1000;
+        // ---- Quick controls ----
+        let quickBusy = false, quickTimer;
+        async function post(url, params) {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-BLLED': '1' },
+                body: new URLSearchParams(params)
+            });
+            if (!r.ok) throw new Error((await r.text()) || r.status);
+            return r.text();
+        }
+        document.querySelectorAll('input[name=qmode]').forEach(r => r.addEventListener('change', async () => {
+            quickBusy = true;
+            try { await post('/api/quick', { mode: r.value }); } catch (e) { alert('Couldn’t change the light mode: ' + e.message); }
+            setTimeout(() => quickBusy = false, 1500);
+        }));
+        $('qbright').addEventListener('input', e => {
+            quickBusy = true;
+            set('qbrightOut', e.target.value + '%');
+            clearTimeout(quickTimer);
+            // Send once the slider settles, so dragging doesn't flood the controller
+            quickTimer = setTimeout(async () => {
+                try { await post('/api/quick', { brightness: e.target.value }); } catch (err) { }
+                setTimeout(() => quickBusy = false, 1500);
+            }, 250);
+        });
+        $('fixSerial').addEventListener('click', async () => {
+            const b = $('fixSerial');
+            b.disabled = true;
+            b.textContent = 'Saving and restarting…';
+            try {
+                await post('/api/useDiscoveredSerial', {});
+                b.textContent = 'Restarting, this page reconnects by itself';
+            } catch (e) {
+                b.disabled = false;
+                b.textContent = 'Couldn’t save: ' + e.message;
+            }
+        });
+
+        let retry = 1000;
         function connect() {
-            ws = new WebSocket('ws://' + location.host + '/ws');
+            const ws = new WebSocket('ws://' + location.host + '/ws');
             ws.onmessage = e => { try { render(JSON.parse(e.data)); retry = 1000; } catch (err) { console.error(err); } };
             ws.onclose = () => {
-                set('stateName', 'Controller unreachable');
-                set('stateSub', 'Retrying…');
+                const ls = $('linkState');
+                ls.className = 'state bad';
+                ls.textContent = 'Controller unreachable, retrying';
                 setTimeout(connect, retry);
                 retry = Math.min(retry * 2, 15000);
             };
         }
-        // First paint from the REST endpoint, then live updates over the websocket
         fetch('/api/status').then(r => r.json()).then(render).catch(() => { });
         connect();
     </script>

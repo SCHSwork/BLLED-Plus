@@ -8,3 +8,8 @@ src/www/www.h
 .DS_Store
 **/.DS_Store
 # .github
+
+# Local build/flash output - data/ and the backup hold the Wi-Fi password and printer access code
+data/
+settings-backup.json
+*.log
