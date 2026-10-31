@@ -193,6 +193,16 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["errorFx"] = printerConfig.errorFx;
     doc["finishFx"] = printerConfig.finishFx;
     doc["progressFx"] = printerConfig.progressFx;
+    doc["filamentColorFx"] = printerConfig.filamentColorFx;
+    // Quiet hours (times as HH:MM for <input type=time>)
+    char hm[16];
+    doc["quietEnabled"] = printerConfig.quietEnabled;
+    snprintf(hm, sizeof(hm), "%02d:%02d", printerConfig.quietStart / 60, printerConfig.quietStart % 60);
+    doc["quietStart"] = hm;
+    snprintf(hm, sizeof(hm), "%02d:%02d", printerConfig.quietEnd / 60, printerConfig.quietEnd % 60);
+    doc["quietEnd"] = hm;
+    doc["quietBrightness"] = printerConfig.quietBrightness;
+    doc["tz"] = printerConfig.tz;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -333,6 +343,28 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.errorFx = constrain(getSafeParamInt(request, "errorFx", printerConfig.errorFx), 0, 2);
     printerConfig.finishFx = constrain(getSafeParamInt(request, "finishFx", printerConfig.finishFx), 0, 2);
     printerConfig.progressFx = request->hasParam("progressFx", true);
+    printerConfig.filamentColorFx = request->hasParam("filamentColorFx", true);
+    // Quiet hours
+    auto parseHM = [](const String &s, int fallback) -> int {
+        int colon = s.indexOf(':');
+        if (colon < 1)
+            return fallback;
+        int h = s.substring(0, colon).toInt(), m = s.substring(colon + 1).toInt();
+        if (h < 0 || h > 23 || m < 0 || m > 59)
+            return fallback;
+        return h * 60 + m;
+    };
+    printerConfig.quietEnabled = request->hasParam("quietEnabled", true);
+    printerConfig.quietStart = parseHM(getSafeParamValue(request, "quietStart"), printerConfig.quietStart);
+    printerConfig.quietEnd = parseHM(getSafeParamValue(request, "quietEnd"), printerConfig.quietEnd);
+    printerConfig.quietBrightness = constrain(getSafeParamInt(request, "quietBrightness", printerConfig.quietBrightness), 0, 100);
+    String newTz = getSafeParamValue(request, "tz", printerConfig.tz);
+    if (newTz.length() > 0 && newTz != printerConfig.tz)
+    {
+        strlcpy(printerConfig.tz, newTz.c_str(), sizeof(printerConfig.tz));
+        setenv("TZ", printerConfig.tz, 1);
+        tzset();
+    }
 
     saveFileSystem();
     LogSerial.println(F("Packet received from setuppage"));
@@ -486,6 +518,17 @@ void fillStatusJson(JsonDocument &doc)
     doc["discoveredSerial"] = seen;
     doc["serialMismatch"] = strlen(seen) > 0 && strcmp(seen, printerConfig.serialNumber) != 0;
     doc["brightness"] = printerConfig.brightness;
+    doc["filamentColor"] = activeFilamentHex();
+    doc["quietActive"] = (bool)quietNow;
+    if (clockSynced())
+    {
+        time_t now = time(nullptr);
+        struct tm t;
+        localtime_r(&now, &t);
+        char clock[8];
+        snprintf(clock, sizeof(clock), "%02d:%02d", t.tm_hour, t.tm_min);
+        doc["clock"] = clock;
+    }
 
     // Printer
     doc["stg_cur"] = printerVariables.stage;

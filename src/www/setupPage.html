@@ -101,6 +101,42 @@
                     <input type="checkbox" class="tog" id="controlChamberLight" name="controlChamberLight">
                 </label>
             </div>
+
+            <div class="group">
+                <h2>Quiet hours</h2>
+                <label class="row">
+                    <span class="txt"><b>Dim the strip at night</b><small id="quietNote">Always on white still uses full brightness.</small></span>
+                    <input type="checkbox" class="tog" id="quietEnabled" name="quietEnabled">
+                </label>
+                <div data-show-if="quietEnabled">
+                    <div class="row">
+                        <label for="quietStart" style="flex:none;margin:0;font-weight:600">From</label>
+                        <input type="time" id="quietStart" name="quietStart" value="23:00" style="flex:1;min-width:0">
+                        <label for="quietEnd" class="unit" style="flex:none;margin:0">to</label>
+                        <input type="time" id="quietEnd" name="quietEnd" value="07:00" style="flex:1;min-width:0">
+                    </div>
+                    <div class="row">
+                        <label for="quietBrightness" class="txt"><b>Brightness</b></label>
+                        <input type="range" id="quietBrightness" name="quietBrightness" min="0" max="100" value="10" style="flex:1.2">
+                        <output id="quietOut" for="quietBrightness" class="unit">10%</output>
+                    </div>
+                    <div class="row">
+                        <label for="tz" class="txt"><b>Time zone</b></label>
+                        <select id="tz" name="tz" style="width:auto;margin:0">
+                            <option value="PST8PDT,M3.2.0,M11.1.0">Pacific</option>
+                            <option value="MST7MDT,M3.2.0,M11.1.0">Mountain</option>
+                            <option value="MST7">Arizona</option>
+                            <option value="CST6CDT,M3.2.0,M11.1.0">Central</option>
+                            <option value="EST5EDT,M3.2.0,M11.1.0">Eastern</option>
+                            <option value="AKST9AKDT,M3.2.0,M11.1.0">Alaska</option>
+                            <option value="HST10">Hawaii</option>
+                            <option value="GMT0BST,M3.5.0/1,M10.5.0">UK</option>
+                            <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe</option>
+                            <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Sydney</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- Print stages -->
@@ -178,8 +214,13 @@
                 </div>
             </div>
             <div class="group">
+                <h2>While printing</h2>
                 <label class="row">
-                    <span class="txt"><b>Progress glow</b><small>While printing, the strip shifts from the printing color to the finished color as the print advances.</small></span>
+                    <span class="txt"><b>Filament color</b><small>The strip glows in the color of the filament being printed and changes when the AMS swaps spools. Black and white filament use your printing color.</small></span>
+                    <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>Progress glow</b><small>The strip shifts from the printing color (or filament color) to the finished color as the print advances.</small></span>
                     <input type="checkbox" class="tog" id="progressFx" name="progressFx">
                 </label>
             </div>
@@ -298,6 +339,8 @@
         });
         const fadeOut = () => $('fadeOut').textContent = ($('fadeMs').value / 1000).toFixed(1).replace('.0', '') + ' s';
         $('fadeMs').addEventListener('input', fadeOut);
+        const quietOut = () => $('quietOut').textContent = +$('quietBrightness').value === 0 ? 'Off' : $('quietBrightness').value + '%';
+        $('quietBrightness').addEventListener('input', quietOut);
         $('brightnessslider').addEventListener('input', e => $('brightnesssliderDisplay').textContent = e.target.value + '%');
 
         // ---- Pick-one groups and show/hide rules ----
@@ -370,7 +413,8 @@
                     debugwifi: c.debugwifi, finishIndication: c.finishindication, finishEndDoor: c.finishExit, finishEndTimer: !c.finishExit,
                     inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging,
                     debugingchange: c.debugingchange, mqttdebug: c.mqttdebug, p1Printer: c.p1Printer, doorSwitch: c.doorSwitch,
-                    errorDetection: c.errordetection, progressFx: c.progressFx
+                    errorDetection: c.errordetection, progressFx: c.progressFx,
+                    filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 
@@ -386,6 +430,13 @@
                 $('inactivityMins').value = num(c.inactivityMins, 30);
                 $('hmsIgnoreList').value = c.hmsIgnoreList || '';
                 $('fadeMs').value = num(c.fadeMs, 600);
+                $('quietStart').value = c.quietStart || '23:00';
+                $('quietEnd').value = c.quietEnd || '07:00';
+                $('quietBrightness').value = num(c.quietBrightness, 10);
+                quietOut();
+                const tzSel = $('tz');
+                if (c.tz && ![...tzSel.options].some(o => o.value === c.tz)) tzSel.add(new Option('Custom (' + c.tz + ')', c.tz));
+                tzSel.value = c.tz || 'MST7MDT,M3.2.0,M11.1.0';
                 for (const [name, d] of [['pauseFx', 1], ['errorFx', 2], ['finishFx', 1]]) {
                     const el = form.querySelector(`input[name="${name}"][value="${num(c[name], d)}"]`);
                     if (el) el.checked = true;
@@ -437,7 +488,7 @@
                 if (d.gcodeState === 'RUNNING' && d.percent >= 0) state += ' ' + d.percent + '%';
             }
             $('stripState').textContent = state;
-            $('stripFx').textContent = FX[d.ledFx] || (m.off ? 'Lights off' : '');
+            $('stripFx').textContent = (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');

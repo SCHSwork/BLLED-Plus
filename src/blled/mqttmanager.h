@@ -275,6 +275,12 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["bed_target_temper"] = true;
     filter["print"]["chamber_temper"] = true;
     filter["print"]["subtask_name"] = true;
+    // Filament colors: AMS units/slots, the active slot, and the external spool
+    filter["print"]["ams"]["tray_now"] = true;
+    filter["print"]["ams"]["ams"][0]["id"] = true;
+    filter["print"]["ams"]["ams"][0]["tray"][0]["id"] = true;
+    filter["print"]["ams"]["ams"][0]["tray"][0]["tray_color"] = true;
+    filter["print"]["vt_tray"]["tray_color"] = true;
     filter["system"]["command"] = true;
     filter["system"]["led_mode"] = true;
 
@@ -312,6 +318,8 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         return;
     }
 
+    bool filamentChanged = false;
+
     // Live print data - recorded even in override modes so the status page stays current
     JsonObject print = messageobject["print"];
     if (!print.isNull())
@@ -336,6 +344,56 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             printerVariables.chamberTemp = print["chamber_temper"].as<float>();
         if (!print["subtask_name"].isNull())
             strlcpy(printerVariables.jobName, print["subtask_name"] | "", sizeof(printerVariables.jobName));
+
+        // Filament colors. tray_color is "RRGGBBAA"; only the RGB part is kept.
+        auto setHex = [&](char *dst, const char *src) {
+            char hex[7] = "";
+            if (src && strlen(src) >= 6)
+            {
+                memcpy(hex, src, 6);
+                hex[6] = 0;
+            }
+            if (strcmp(dst, hex) != 0)
+            {
+                strcpy(dst, hex);
+                return true;
+            }
+            return false;
+        };
+        const char *before = activeFilamentHex();
+        char beforeHex[7];
+        strlcpy(beforeHex, before, sizeof(beforeHex));
+
+        JsonObject ams = print["ams"];
+        if (!ams.isNull())
+        {
+            if (!ams["tray_now"].isNull())
+                printerVariables.trayNow = ams["tray_now"].as<String>().toInt();
+            for (JsonObject unit : ams["ams"].as<JsonArray>())
+            {
+                int unitId = unit["id"].as<String>().toInt();
+                if (unitId < 0 || unitId > 3)
+                    continue; // only standard AMS units map onto tray_now 0-15
+                for (JsonObject tray : unit["tray"].as<JsonArray>())
+                {
+                    int trayId = tray["id"].as<String>().toInt();
+                    if (trayId < 0 || trayId > 3)
+                        continue;
+                    // A slot listed without a color is empty
+                    setHex(printerVariables.trayColor[unitId * 4 + trayId], tray["tray_color"] | "");
+                }
+            }
+        }
+        if (!print["vt_tray"].isNull())
+            setHex(printerVariables.extColor, print["vt_tray"]["tray_color"] | "");
+
+        if (strcmp(beforeHex, activeFilamentHex()) != 0)
+        {
+            filamentChanged = true;
+            if (printerConfig.debugingchange)
+                LogSerial.printf("[MQTT] Active filament color now: %s (slot %d)\n",
+                                 strlen(activeFilamentHex()) ? activeFilamentHex() : "none", printerVariables.trayNow);
+        }
     }
 
     // Output Filtered MQTT message
@@ -634,6 +692,10 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             Changed = true;
         }
     }
+
+    // An AMS swap mid-print changes the strip color when filament color mode is on
+    if (filamentChanged && printerConfig.filamentColorFx)
+        Changed = true;
 
     if (Changed == true)
     {

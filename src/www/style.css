@@ -222,8 +222,8 @@ body {
 .row[hidden], [data-show-if][hidden] { display: none; }
 .row.sub { padding-left: 32px; }
 
-.row input[type="number"] {
-  width: 64px;
+.row input[type="number"], .row input[type="time"] {
+  min-width: 64px;
   padding: 7px 8px;
   text-align: center;
   font: inherit;
@@ -570,3 +570,4 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.row input[type="time"] { font-size: 14px; padding: 7px 6px; }

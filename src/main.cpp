@@ -89,6 +89,8 @@ void setup()
         // drops the MQTT client. The controller is mains powered, so keep the radio awake.
         WiFi.setSleep(false);
         WiFi.setAutoReconnect(true);
+        // Network time, for quiet hours. Syncs in the background; quiet hours wait until it has.
+        configTzTime(printerConfig.tz, "pool.ntp.org", "time.google.com");
         tweenToColor(0, 0, 255, 0, 0); // BLUE
         setupWebserver();
     }

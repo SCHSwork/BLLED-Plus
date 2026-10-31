@@ -99,6 +99,8 @@
         <div class="group">
             <h2>Controller</h2>
             <div class="stat"><span>Light mode</span><span id="mode">–</span></div>
+            <div class="stat"><span>Filament</span><span id="fil">–</span></div>
+            <div class="stat"><span>Quiet hours</span><span id="quiet">–</span></div>
             <div class="stat"><span>Running for</span><span id="uptime">–</span></div>
             <div class="stat"><span>Free memory</span><span id="heap">–</span></div>
             <div class="stat"><span>Firmware</span><span id="fw">–</span></div>
@@ -162,7 +164,7 @@
             const rainbow = d.ledFx === 'rainbow';
             $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
-            set('stateFx', FX[d.ledFx] || (m.off ? 'Lights off' : ''));
+            set('stateFx', (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');
@@ -223,6 +225,11 @@
                     set('qbrightOut', d.brightness + '%');
                 }
             }
+            const fil = $('fil');
+            if (d.filamentColor) {
+                fil.innerHTML = '<i style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:7px;vertical-align:-1px;box-shadow:0 0 0 1px var(--ring) inset;background:#' + d.filamentColor + '"></i>#' + d.filamentColor;
+            } else fil.textContent = 'None loaded';
+            set('quiet', d.quietActive ? 'Active now' : (d.clock ? 'Not now (' + d.clock + ')' : 'Waiting for the clock'));
             set('uptime', dur(d.uptime));
             set('heap', Math.round(d.heap / 1024) + ' KB');
             set('fw', d.fw);

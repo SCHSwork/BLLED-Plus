@@ -54,6 +54,11 @@ extern "C"
         float chamberTemp = 0;
         char jobName[64] = "";            // subtask_name
 
+        // Filament colors (AMS slots 0-15 = unit*4 + slot, plus the external spool)
+        char trayColor[16][7] = {};       // "RRGGBB", "" when the slot is empty or unknown
+        char extColor[7] = "";
+        int trayNow = 255;                // active slot: 0-15 AMS, 254 external spool, 255 none
+
         // Connection health
         bool mqttAuthFailed = false;      // printer refused the access code
         unsigned long lastMqttMsgMs = 0;  // last message of any kind from the printer
@@ -147,6 +152,14 @@ extern "C"
         uint8_t errorFx = 2;            // Errors and HMS faults: blink
         uint8_t finishFx = 1;           // Print finished: breathe
         bool progressFx = false;        // While printing, blend running color -> finish color by %
+        bool filamentColorFx = false;   // While printing, glow in the active filament's color
+
+        // Quiet hours: dim (or turn off) the strip during a nightly window
+        bool quietEnabled = false;
+        int quietStart = 23 * 60;       // minutes after midnight
+        int quietEnd = 7 * 60;
+        int quietBrightness = 10;       // % during quiet hours, 0 = off
+        char tz[48] = "MST7MDT,M3.2.0,M11.1.0"; // POSIX time zone for the clock (US Mountain)
 
 
     } PrinterConfig;

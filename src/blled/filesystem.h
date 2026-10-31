@@ -130,6 +130,13 @@ void saveFileSystem()
     json["errorFx"] = printerConfig.errorFx;
     json["finishFx"] = printerConfig.finishFx;
     json["progressFx"] = printerConfig.progressFx;
+    json["filamentColorFx"] = printerConfig.filamentColorFx;
+    // Quiet hours
+    json["quietEnabled"] = printerConfig.quietEnabled;
+    json["quietStart"] = printerConfig.quietStart;
+    json["quietEnd"] = printerConfig.quietEnd;
+    json["quietBrightness"] = printerConfig.quietBrightness;
+    json["tz"] = printerConfig.tz;
 
     File configFile = LittleFS.open(configPath, "w");
     if (!configFile)
@@ -240,6 +247,13 @@ void loadFileSystem()
         printerConfig.errorFx = constrain((int)(json["errorFx"] | 2), 0, 2);
         printerConfig.finishFx = constrain((int)(json["finishFx"] | 1), 0, 2);
         printerConfig.progressFx = json["progressFx"] | false;
+        printerConfig.filamentColorFx = json["filamentColorFx"] | false;
+        // Quiet hours
+        printerConfig.quietEnabled = json["quietEnabled"] | false;
+        printerConfig.quietStart = constrain((int)(json["quietStart"] | 23 * 60), 0, 1439);
+        printerConfig.quietEnd = constrain((int)(json["quietEnd"] | 7 * 60), 0, 1439);
+        printerConfig.quietBrightness = constrain((int)(json["quietBrightness"] | 10), 0, 100);
+        strlcpy(printerConfig.tz, json["tz"] | "MST7MDT,M3.2.0,M11.1.0", sizeof(printerConfig.tz));
 
         LogSerial.println(F("[Filesystem] Loaded config"));
     }

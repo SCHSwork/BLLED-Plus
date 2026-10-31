@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 #include "mqttparsingutility.h"
 void controlChamberLight(bool on); // Forward declaration
 
@@ -108,6 +109,76 @@ static inline uint32_t toDuty(float p)
     return (uint32_t)(powf(p, LED_GAMMA) * pwmMax + 0.5f);
 }
 
+// ---------------------------------------------------------------------------
+//  Quiet hours: during a nightly window the strip is capped at a lower brightness.
+//  Maintenance (always-on white) ignores it - someone is working in the printer.
+// ---------------------------------------------------------------------------
+volatile bool quietNow = false;
+
+bool clockSynced()
+{
+    return time(nullptr) > 1700000000; // NTP has set the clock
+}
+
+bool computeQuiet()
+{
+    if (!printerConfig.quietEnabled || printerConfig.quietStart == printerConfig.quietEnd || !clockSynced())
+        return false;
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    int m = t.tm_hour * 60 + t.tm_min;
+    int s = printerConfig.quietStart, e = printerConfig.quietEnd;
+    return (s < e) ? (m >= s && m < e) : (m >= s || m < e); // window may cross midnight
+}
+
+int effectiveBrightness()
+{
+    if (quietNow && !printerConfig.maintMode)
+        return min(printerConfig.brightness, printerConfig.quietBrightness);
+    return printerConfig.brightness;
+}
+
+// ---------------------------------------------------------------------------
+//  Filament color: the color the active AMS slot / external spool reports
+// ---------------------------------------------------------------------------
+const char *activeFilamentHex()
+{
+    int n = printerVariables.trayNow;
+    if (n >= 0 && n < 16)
+        return printerVariables.trayColor[n];
+    if (n == 254)
+        return printerVariables.extColor;
+    return "";
+}
+
+// Turns a filament color into a good strip color. Returns false when the strip should use the
+// normal running color instead: no filament info, or black / white filament (black would mean
+// a dark chamber, and real white looks better on the white LED channels).
+bool filamentLedColor(COLOR &out)
+{
+    const char *hex = activeFilamentHex();
+    if (strlen(hex) != 6)
+        return false;
+    long v = strtol(hex, NULL, 16);
+    int r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    int hi = max(r, max(g, b)), lo = min(r, min(g, b));
+    if (hi < 40)
+        return false; // black / very dark
+    if (lo > 190 && hi - lo < 40)
+        return false; // white / light grey
+    // Filament colors are often dark (navy, forest green). Scale so the brightest channel is
+    // full, keeping the hue, so every filament lights the chamber equally well.
+    float k = 255.0f / hi;
+    out.r = (short)(r * k);
+    out.g = (short)(g * k);
+    out.b = (short)(b * k);
+    out.ww = 0;
+    out.cw = 0;
+    snprintf(out.RGBhex, sizeof(out.RGBhex), "#%02X%02X%02X", out.r, out.g, out.b);
+    return true;
+}
+
 COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
 {
     COLOR color;
@@ -145,7 +216,7 @@ void ledSetNextFx(uint8_t fx)
 // Color the FX_PROGRESS effect blends towards as the print advances.
 void ledSetProgressTarget(const COLOR &c)
 {
-    float b = (float)printerConfig.brightness / 100.0f;
+    float b = (float)effectiveBrightness() / 100.0f;
     float alt[5] = {
         toPerceptual((int)(c.r * b)), toPerceptual((int)(c.g * b)), toPerceptual((int)(c.b * b)),
         toPerceptual((int)(c.ww * b)), toPerceptual((int)(c.cw * b))};
@@ -156,7 +227,7 @@ void ledSetProgressTarget(const COLOR &c)
 
 void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = -1)
 {
-    float brightness = (float)printerConfig.brightness / 100.0;
+    float brightness = (float)effectiveBrightness() / 100.0;
 
     int brightenedRed = (int)(constrain(targetRed, 0, 255) * brightness);
     int brightenedGreen = (int)(constrain(targetGreen, 0, 255) * brightness);
@@ -198,9 +269,9 @@ void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm
 }
 
 // Helper functions to allow changes colors by using a COLOR, string or integer hex code
-void tweenToColor(COLOR targetcolor)
+void tweenToColor(COLOR targetcolor, int duration = -1)
 {
-    tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
+    tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw, duration);
 }
 // Example:  tweenToColor("#33FD67")
 void tweenToColor(String strTargetColor, short ww_value = 0, short cw_value = 0)
@@ -286,7 +357,7 @@ static void ledRenderFrame()
     }
     case FX_RAINBOW:
     {
-        float v = toPerceptual((int)(255 * printerConfig.brightness / 100.0f));
+        float v = toPerceptual((int)(255 * effectiveBrightness() / 100.0f));
         float rgb[3];
         hsvToPerceptual((float)(now % 12000) * 360.0f / 12000.0f, 1.0f, v, rgb);
         for (int i = 0; i < 3; i++)
@@ -742,16 +813,18 @@ void updateleds()
     // Printing or Resume after Pausing
     if (printerVariables.stage == 0 && printerVariables.gcodeState == "RUNNING")
     {
+        COLOR base = printerConfig.runningColor; // Customisable - Default is WHITE
+        bool useFilament = printerConfig.filamentColorFx && filamentLedColor(base);
         if (printerConfig.progressFx)
         {
             ledSetProgressTarget(printerConfig.finishColor);
-            showFx(FX_PROGRESS, printerConfig.runningColor);
+            showFx(FX_PROGRESS, base);
         }
         else
         {
-            tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
+            tweenToColor(base, 1500); // slower fade so a filament swap reads as a color change
         }
-        printLogs("Stage 0, PRINTING - gcodeState RUNNING", printerConfig.runningColor);
+        printLogs(useFilament ? "Stage 0, PRINTING - filament color" : "Stage 0, PRINTING - gcodeState RUNNING", base);
         return;
     }
 
@@ -861,6 +934,28 @@ void ledsloop()
     {
         ledOffRequested = false;
         tweenToColor(0, 0, 0, 0, 0);
+    }
+
+    // Quiet hours: check the clock every few seconds and re-apply the current state when the
+    // window starts or ends, with a slow fade.
+    static unsigned long lastQuietCheck = 0;
+    if (millis() - lastQuietCheck > 5000)
+    {
+        lastQuietCheck = millis();
+        bool q = computeQuiet();
+        if (q != quietNow)
+        {
+            quietNow = q;
+            LogSerial.println(q ? F("[Quiet] Quiet hours started - dimming") : F("[Quiet] Quiet hours ended"));
+            printerConfig.replicate_update = true;
+            printerConfig.maintMode_update = true;
+            printerConfig.discoMode_update = true;
+            printerConfig.testcolor_update = true;
+            int saved = printerConfig.fadeMs;
+            printerConfig.fadeMs = 3000;
+            updateleds();
+            printerConfig.fadeMs = saved;
+        }
     }
 
     RGBCycle();
