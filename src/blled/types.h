@@ -43,6 +43,22 @@ extern "C"
         unsigned long lastdoorOpenms = 0;       // Last time door was closed
         bool chamberLightLocked = false;  // blocks replicate while true
         bool ledWasForcedByDoor = false;
+
+        // Live print data (for the status page, /api/status and the progress effect)
+        int percent = -1;                 // mc_percent, -1 = unknown
+        int remainingMins = -1;           // mc_remaining_time
+        int layer = -1;                   // layer_num
+        int totalLayers = -1;             // total_layer_num
+        float nozzleTemp = 0, nozzleTarget = 0;
+        float bedTemp = 0, bedTarget = 0;
+        float chamberTemp = 0;
+        char jobName[64] = "";            // subtask_name
+
+        // Connection health
+        bool mqttAuthFailed = false;      // printer refused the access code
+        unsigned long lastMqttMsgMs = 0;  // last message of any kind from the printer
+        uint32_t mqttConnects = 0;        // successful connects since boot
+        uint32_t wifiDrops = 0;           // Wi-Fi drops since boot
     } PrinterVariables;
     PrinterVariables printerVariables;
 
@@ -124,7 +140,14 @@ extern "C"
         COLOR bedTempRGB;
         // HMS Error Handling
         String hmsIgnoreList; // comma-separated list of HMS_XXXX_XXXX_XXXX_XXXX codes to ignore
-        
+
+        // Effects (see LedFx in leds.h: 0 solid, 1 breathe, 2 blink)
+        int fadeMs = 600;               // Cross-fade time between colors
+        uint8_t pauseFx = 1;            // Pause / first-layer / clog: breathe
+        uint8_t errorFx = 2;            // Errors and HMS faults: blink
+        uint8_t finishFx = 1;           // Print finished: breathe
+        bool progressFx = false;        // While printing, blend running color -> finish color by %
+
 
     } PrinterConfig;
 

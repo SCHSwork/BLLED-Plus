@@ -85,6 +85,10 @@ void setup()
     else
     {
         Serial.println(F("[WiFiManager] connected. Starting webUI."));
+        // Modem sleep adds 100+ ms latency spikes, which is a common reason the printer
+        // drops the MQTT client. The controller is mains powered, so keep the radio awake.
+        WiFi.setSleep(false);
+        WiFi.setAutoReconnect(true);
         tweenToColor(0, 0, 255, 0, 0); // BLUE
         setupWebserver();
     }
@@ -106,41 +110,77 @@ void setup()
     updateleds();
 }
 
+// Wi-Fi recovery: retry gently every 10 s, and after about a minute without success
+// rescan for the strongest access point and do a full reconnect.
+void wifiWatchdog()
+{
+    static unsigned long lostAt = 0;
+    static unsigned long lastAttempt = 0;
+
+    if (WiFi.getMode() & WIFI_AP)
+        return;
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        if (lostAt != 0)
+        {
+            LogSerial.printf("[WiFi] Reconnected after %lu s (RSSI %d dBm)\n", (millis() - lostAt) / 1000, WiFi.RSSI());
+            lostAt = 0;
+            wifi_reconnect_count = 0;
+        }
+        return;
+    }
+
+    if (lostAt == 0)
+    {
+        lostAt = millis();
+        lastAttempt = millis(); // auto-reconnect gets the first try
+        printerVariables.wifiDrops++;
+        LogSerial.printf("[WiFi] Connection dropped (%s)\n", wl_status_to_string(WiFi.status()));
+        return;
+    }
+
+    if (millis() - lastAttempt < 10000)
+        return;
+    lastAttempt = millis();
+    wifi_reconnect_count++;
+
+    if (wifi_reconnect_count <= 5)
+    {
+        LogSerial.printf("[WiFi] Reconnect attempt %d\n", wifi_reconnect_count);
+        WiFi.reconnect();
+    }
+    else
+    {
+        LogSerial.println(F("[WiFi] Still offline - rescanning for the strongest access point"));
+        printerConfig.rescanWiFiNetwork = true; // let scanNetwork() pick a new BSSID if the old AP is gone
+        scanNetwork();
+        printerConfig.rescanWiFiNetwork = false;
+        connectToWifi();
+        WiFi.setSleep(false);
+        wifi_reconnect_count = 0;
+        lastAttempt = millis();
+    }
+}
+
 void loop()
 {
     serialLoop();
+
+    // Captive portal for first-time setup (the BLLED_AP hotspot). This runs before
+    // "started" is set, so it has to live outside that block.
+    if (WiFi.getMode() & WIFI_AP)
+    {
+        dnsServer.processNextRequest();
+    }
+
     if (globalVariables.started)
     {
         websocketLoop();
         ledsloop();
+        wifiWatchdog();
 
-        if (WiFi.status() != WL_CONNECTED)
-        {
-            LogSerial.print(F("Wifi connection dropped.  "));
-            LogSerial.print(F("Wifi Status: "));
-            LogSerial.println(wl_status_to_string(WiFi.status()));
-            LogSerial.println(F("Attempting to reconnect to WiFi..."));
-            wifi_reconnect_count += 1;
-            if (wifi_reconnect_count <= 2)
-            {
-                WiFi.disconnect();
-                delay(100);
-                WiFi.reconnect();
-            }
-            else
-            {
-                // Not connecting after 10 simple disconnect / reconnects
-                // Do something more drastic in case needing to switch to new AP
-                scanNetwork();
-                connectToWifi();
-                wifi_reconnect_count = 0;
-            }
-        }
-        if (WiFi.getMode() == WIFI_AP)
-        {
-            dnsServer.processNextRequest();
-        }
-        if(WiFi.status() == WL_CONNECTED && WiFi.getMode() != WIFI_AP)
+        if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
         {
             bblSearchPrinters();
         }

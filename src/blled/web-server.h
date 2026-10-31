@@ -187,6 +187,12 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["hmsIgnoreList"] = printerConfig.hmsIgnoreList;
     // control chamber light
     doc["controlChamberLight"] = printerConfig.controlChamberLight;
+    // Effects
+    doc["fadeMs"] = printerConfig.fadeMs;
+    doc["pauseFx"] = printerConfig.pauseFx;
+    doc["errorFx"] = printerConfig.errorFx;
+    doc["finishFx"] = printerConfig.finishFx;
+    doc["progressFx"] = printerConfig.progressFx;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -321,6 +327,12 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.hmsIgnoreList = getSafeParamValue(request, "hmsIgnoreList");
     // Control Chamber Light
     printerConfig.controlChamberLight = request->hasParam("controlChamberLight", true);
+    // Effects
+    printerConfig.fadeMs = constrain(getSafeParamInt(request, "fadeMs", printerConfig.fadeMs), 0, 5000);
+    printerConfig.pauseFx = constrain(getSafeParamInt(request, "pauseFx", printerConfig.pauseFx), 0, 2);
+    printerConfig.errorFx = constrain(getSafeParamInt(request, "errorFx", printerConfig.errorFx), 0, 2);
+    printerConfig.finishFx = constrain(getSafeParamInt(request, "finishFx", printerConfig.finishFx), 0, 2);
+    printerConfig.progressFx = request->hasParam("progressFx", true);
 
     saveFileSystem();
     LogSerial.println(F("Packet received from setuppage"));
@@ -330,7 +342,7 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.maintMode_update = true;
     printerConfig.discoMode_update = true;
     printerConfig.testcolor_update = true;
-    updateleds();
+    requestLedUpdate(); // runs on the main task
     request->send(200, "text/plain", "OK");
 }
 
@@ -447,6 +459,63 @@ void handleSubmitWiFi(AsyncWebServerRequest *request)
     restartRequestTime = millis();
 }
 
+// Everything the status page, the setup page header and /api/status show.
+// Field names used by the original setup page (wifi_rssi, printerConnection, ...) are kept.
+void fillStatusJson(JsonDocument &doc)
+{
+    doc["fw"] = globalVariables.FWVersion;
+    doc["host"] = globalVariables.Host;
+    doc["wifi_rssi"] = WiFi.RSSI();
+    doc["ip"] = WiFi.localIP().toString();
+    doc["uptime"] = millis() / 1000;
+    doc["heap"] = ESP.getFreeHeap();
+    doc["clients"] = ws.count();
+
+    // Connection health
+    doc["printerConnection"] = printerVariables.online;
+    doc["mqttAuthFailed"] = printerVariables.mqttAuthFailed;
+    doc["mqttConnects"] = printerVariables.mqttConnects;
+    doc["wifiDrops"] = printerVariables.wifiDrops;
+    doc["lastMsgAgo"] = printerVariables.lastMqttMsgMs ? (long)((millis() - printerVariables.lastMqttMsgMs) / 1000) : -1;
+    doc["offlineFor"] = (!printerVariables.online && printerVariables.disconnectMQTTms) ? (long)((millis() - printerVariables.disconnectMQTTms) / 1000) : 0;
+
+    // Printer
+    doc["stg_cur"] = printerVariables.stage;
+    doc["gcodeState"] = printerVariables.gcodeState;
+    doc["doorOpen"] = printerVariables.doorOpen;
+    doc["chamberLight"] = printerVariables.printerledstate;
+    doc["hms"] = printerVariables.parsedHMSlevel;
+    if (printerVariables.parsedHMSlevel.length() > 0)
+    {
+        uint64_t c = printerVariables.parsedHMScode;
+        char code[24];
+        snprintf(code, sizeof(code), "%04X_%04X_%04X_%04X",
+                 (int)(c >> 48), (int)((c >> 32) & 0xFFFF), (int)((c >> 16) & 0xFFFF), (int)(c & 0xFFFF));
+        doc["hmsCode"] = code;
+    }
+    doc["percent"] = printerVariables.percent;
+    doc["remainingMins"] = printerVariables.remainingMins;
+    doc["layer"] = printerVariables.layer;
+    doc["totalLayers"] = printerVariables.totalLayers;
+    doc["nozzleTemp"] = printerVariables.nozzleTemp;
+    doc["nozzleTarget"] = printerVariables.nozzleTarget;
+    doc["bedTemp"] = printerVariables.bedTemp;
+    doc["bedTarget"] = printerVariables.bedTarget;
+    doc["chamberTemp"] = printerVariables.chamberTemp;
+    doc["job"] = printerVariables.jobName;
+
+    // What the strip is showing
+    char hex[8];
+    int ww, cw;
+    const char *fx;
+    ledGetOutput(hex, sizeof(hex), ww, cw, fx);
+    doc["ledRGB"] = hex;
+    doc["ledWW"] = ww;
+    doc["ledCW"] = cw;
+    doc["ledFx"] = fx;
+    doc["mode"] = printerConfig.maintMode ? "maintenance" : printerConfig.discoMode ? "rgbcycle" : printerConfig.testcolorEnabled ? "test" : printerConfig.debugwifi ? "wifidebug" : printerConfig.isIdleOFFActive ? "idle-off" : "auto";
+}
+
 void websocketLoop()
 {
     if (ws.count() == 0)
@@ -454,17 +523,36 @@ void websocketLoop()
     if (millis() - lastWsPush > wsPushInterval)
     {
         lastWsPush = millis();
+        ws.cleanupClients();
 
         JsonDocument doc;
-        doc["wifi_rssi"] = WiFi.RSSI();
-        doc["ip"] = WiFi.localIP().toString();
-        doc["uptime"] = millis() / 1000;
-        doc["doorOpen"] = printerVariables.doorOpen;
-        doc["printerConnection"] = printerVariables.online;
-        doc["clients"] = ws.count();
-        doc["stg_cur"] = printerVariables.stage;
+        fillStatusJson(doc);
         sendJsonToAll(doc);
     }
+}
+
+void handleApiStatus(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+    {
+        return request->requestAuthentication();
+    }
+    JsonDocument doc;
+    fillStatusJson(doc);
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+}
+
+void handleStatusPage(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+    {
+        return request->requestAuthentication();
+    }
+    AsyncWebServerResponse *response = request->beginResponse(200, statusPage_html_gz_mime, statusPage_html_gz, statusPage_html_gz_len);
+    response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
 }
 
 void handleConfigPage(AsyncWebServerRequest *request)
@@ -606,7 +694,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
     {
     case WS_EVT_CONNECT:
         LogSerial.printf("[WS] Client connected: %u\n", client->id());
-        websocketLoop();
+        lastWsPush = 0; // the main task sends a fresh update on its next pass
         break;
     case WS_EVT_DISCONNECT:
         LogSerial.printf("[WS] Client disconnected: %u\n", client->id());
@@ -644,6 +732,8 @@ void setupWebserver()
     } else {
         handleSetup(request);
     } });
+    webServer.on("/status", HTTP_GET, handleStatusPage);
+    webServer.on("/api/status", HTTP_GET, handleApiStatus);
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);

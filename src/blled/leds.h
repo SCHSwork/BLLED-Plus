@@ -2,8 +2,25 @@
 #define _LED
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include "mqttparsingutility.h"
 void controlChamberLight(bool on); // Forward declaration
+
+// ---------------------------------------------------------------------------
+//  LED engine
+//
+//  The original firmware faded colors with a blocking loop (~500 ms of delay()
+//  per change) that was often called from inside the MQTT task, stalling the
+//  MQTT connection. Its integer step math also rounded every step to 0, so it
+//  never actually faded: it waited, then jumped.
+//
+//  Now tweenToColor() only records a target. A small FreeRTOS task renders the
+//  output ~100 times a second: smooth cross-fades and effects (breathe, blink,
+//  print-progress blend, rainbow) on 12-bit PWM. Fades and effects run in
+//  perceptual (gamma) space, but a steady color lands on exactly the same duty
+//  cycle as the original 8-bit firmware, so existing color and brightness
+//  settings look the same.
+// ---------------------------------------------------------------------------
 
 const int redPin = 19;
 const int greenPin = 18;
@@ -18,8 +35,33 @@ const int warmChannel = 3;
 const int coldChannel = 4;
 
 const int pwmFreq = 5000;
-const int pwmResolution = 8; // 8-bit PWM = 0-255
+const int pwmResolution = 12; // 12-bit PWM = 0-4095 (5 kHz supports up to 13 bits)
+const int pwmMax = (1 << pwmResolution) - 1;
+const float LED_GAMMA = 2.2f;
 
+enum LedFx : uint8_t
+{
+    FX_SOLID = 0,
+    FX_BREATHE = 1,
+    FX_BLINK = 2,
+    FX_PROGRESS = 3,
+    FX_RAINBOW = 4
+};
+
+const char *ledFxName(uint8_t fx)
+{
+    switch (fx)
+    {
+    case FX_BREATHE: return "breathe";
+    case FX_BLINK: return "blink";
+    case FX_PROGRESS: return "progress";
+    case FX_RAINBOW: return "rainbow";
+    default: return "solid";
+    }
+}
+
+// Logical (brightness-scaled, 0-255) target. Kept for compatibility with the
+// state logic below, e.g. the double-door-close toggle checks currentWarm/Cold.
 int currentRed = 0;
 int currentGreen = 0;
 int currentBlue = 0;
@@ -29,16 +71,57 @@ int currentCold = 0;
 unsigned long lastUpdatems = 0;
 unsigned long oldms = 0;
 
+// Render state, shared with the render task (guarded by ledMux)
+static portMUX_TYPE ledMux = portMUX_INITIALIZER_UNLOCKED;
+static float ledFrom[5] = {0, 0, 0, 0, 0};   // perceptual 0..1
+static float ledTo[5] = {0, 0, 0, 0, 0};     // perceptual 0..1
+static float ledAlt[5] = {0, 0, 0, 0, 0};    // perceptual 0..1, end color for FX_PROGRESS
+static float ledOut[5] = {0, 0, 0, 0, 0};    // perceptual 0..1, last rendered frame
+static uint32_t ledFadeStart = 0;
+static uint32_t ledFadeMs = 0;
+static uint8_t ledFx = FX_SOLID;
+static uint8_t ledNextFx = FX_SOLID;         // applied by the next tweenToColor()
+static TaskHandle_t ledTaskHandle = NULL;
+
+// Requests from other tasks (MQTT, web) - handled in ledsloop() on the main task
+volatile bool ledUpdateRequested = false;
+volatile bool ledOffRequested = false;
+
+void requestLedUpdate() { ledUpdateRequested = true; }
+void requestLedOff() { ledOffRequested = true; }
+
+static inline float toPerceptual(int v255)
+{
+    if (v255 <= 0)
+        return 0.0f;
+    if (v255 >= 255)
+        return 1.0f;
+    return powf((float)v255 / 255.0f, 1.0f / LED_GAMMA);
+}
+
+static inline uint32_t toDuty(float p)
+{
+    if (p <= 0.0f)
+        return 0;
+    if (p >= 1.0f)
+        return pwmMax;
+    return (uint32_t)(powf(p, LED_GAMMA) * pwmMax + 0.5f);
+}
+
 COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
 {
     COLOR color;
     long hexcolor;
-    strcpy(color.RGBhex, hex.c_str());
+    strlcpy(color.RGBhex, hex.c_str(), sizeof(color.RGBhex));
     if (hex.charAt(0) == '#')
     {
         hex.remove(0, 1);
     }
-    while (hex.length() != 6)
+    if (hex.length() > 6)
+    {
+        hex = hex.substring(0, 6);
+    }
+    while (hex.length() < 6)
     {
         hex += "0";
     }
@@ -46,71 +129,54 @@ COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
     color.r = (hexcolor & 0xFF0000) >> 16;
     color.g = (hexcolor & 0x00FF00) >> 8;
     color.b = (hexcolor & 0x0000FF);
-    color.ww = ww_value;
-    color.cw = cw_value;
+    color.ww = constrain(ww_value, 0, 255);
+    color.cw = constrain(cw_value, 0, 255);
 
     return color;
 }
 
-void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = 500)
+// The effect the next tweenToColor() call should use. Resets to solid after use,
+// so every existing tweenToColor() call keeps behaving as a plain color.
+void ledSetNextFx(uint8_t fx)
 {
+    ledNextFx = fx;
+}
 
+// Color the FX_PROGRESS effect blends towards as the print advances.
+void ledSetProgressTarget(const COLOR &c)
+{
+    float b = (float)printerConfig.brightness / 100.0f;
+    float alt[5] = {
+        toPerceptual((int)(c.r * b)), toPerceptual((int)(c.g * b)), toPerceptual((int)(c.b * b)),
+        toPerceptual((int)(c.ww * b)), toPerceptual((int)(c.cw * b))};
+    portENTER_CRITICAL(&ledMux);
+    memcpy(ledAlt, alt, sizeof(ledAlt));
+    portEXIT_CRITICAL(&ledMux);
+}
+
+void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = -1)
+{
     float brightness = (float)printerConfig.brightness / 100.0;
 
-    /*     int brightenedRed = round(targetRed * brightness);
-        int brightenedGreen = round(targetGreen * brightness);
-        int brightenedBlue = round(targetBlue * brightness);
-        int brightenedWarm = round(targetWarm * brightness);
-        int brightenedCold = round(targetCold * brightness); */
-    //round implizit downward
-    int brightenedRed = (int)(targetRed * brightness);
-    int brightenedGreen = (int)(targetGreen * brightness);
-    int brightenedBlue = (int)(targetBlue * brightness);
-    int brightenedWarm = (int)(targetWarm * brightness);
-    int brightenedCold = (int)(targetCold * brightness);
+    int brightenedRed = (int)(constrain(targetRed, 0, 255) * brightness);
+    int brightenedGreen = (int)(constrain(targetGreen, 0, 255) * brightness);
+    int brightenedBlue = (int)(constrain(targetBlue, 0, 255) * brightness);
+    int brightenedWarm = (int)(constrain(targetWarm, 0, 255) * brightness);
+    int brightenedCold = (int)(constrain(targetCold, 0, 255) * brightness);
 
-    if (brightenedRed == currentRed && brightenedGreen == currentGreen && brightenedBlue == currentBlue && brightenedWarm == currentWarm && brightenedCold == currentCold)
+    uint8_t fx = ledNextFx;
+    ledNextFx = FX_SOLID;
+
+    if (brightenedRed == currentRed && brightenedGreen == currentGreen && brightenedBlue == currentBlue &&
+        brightenedWarm == currentWarm && brightenedCold == currentCold && fx == ledFx)
     {
-        // Already set to the requested color
         if (printerConfig.debuging)
         {
-            LogSerial.print(F("LEDS already at color: ("));
-            LogSerial.print(currentRed);
-            LogSerial.print(F(", "));
-            LogSerial.print(currentGreen);
-            LogSerial.print(F(", "));
-            LogSerial.print(currentBlue);
-            LogSerial.print(F(", "));
-            LogSerial.print(currentWarm);
-            LogSerial.print(F(", "));
-            LogSerial.print(currentCold);
-            LogSerial.print(F(" Brightness: "));
-            LogSerial.print(printerConfig.brightness);
-            LogSerial.println(F(")"));
-        };
+            LogSerial.printf("LEDS already at color: (%d, %d, %d, %d, %d) fx:%s Brightness: %d\n",
+                             currentRed, currentGreen, currentBlue, currentWarm, currentCold,
+                             ledFxName(fx), printerConfig.brightness);
+        }
         return;
-    }
-    float stepTime = (float)duration / 255.0;
-    int redStep = (brightenedRed - currentRed) / 255;
-    int greenStep = (brightenedGreen - currentGreen) / 255;
-    int blueStep = (brightenedBlue - currentBlue) / 255;
-    int warmStep = (brightenedWarm - currentWarm) / 255;
-    int coldStep = (brightenedCold - currentCold) / 255;
-
-    for (int i = 0; i < 256; i++)
-    {
-        currentRed += redStep;
-        currentGreen += greenStep;
-        currentBlue += blueStep;
-        currentWarm += warmStep;
-        currentCold += coldStep;
-
-        ledcWrite(redChannel, currentRed);
-        ledcWrite(greenChannel, currentGreen);
-        ledcWrite(blueChannel, currentBlue);
-        ledcWrite(warmChannel, currentWarm);
-        ledcWrite(coldChannel, currentCold);
-        delay(stepTime);
     }
 
     currentRed = brightenedRed;
@@ -119,14 +185,19 @@ void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm
     currentWarm = brightenedWarm;
     currentCold = brightenedCold;
 
-    ledcWrite(redChannel, currentRed);
-    ledcWrite(greenChannel, currentGreen);
-    ledcWrite(blueChannel, currentBlue);
-    ledcWrite(warmChannel, currentWarm);
-    ledcWrite(coldChannel, currentCold);
+    float to[5] = {toPerceptual(currentRed), toPerceptual(currentGreen), toPerceptual(currentBlue),
+                   toPerceptual(currentWarm), toPerceptual(currentCold)};
+
+    portENTER_CRITICAL(&ledMux);
+    memcpy(ledFrom, ledOut, sizeof(ledFrom)); // fade from whatever is showing right now
+    memcpy(ledTo, to, sizeof(ledTo));
+    ledFadeStart = millis();
+    ledFadeMs = (duration < 0) ? (uint32_t)max(0, printerConfig.fadeMs) : (uint32_t)duration;
+    ledFx = fx;
+    portEXIT_CRITICAL(&ledMux);
 }
 
-// Helper functions to allow changes colors by using a string or integer hex code
+// Helper functions to allow changes colors by using a COLOR, string or integer hex code
 void tweenToColor(COLOR targetcolor)
 {
     tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
@@ -134,38 +205,143 @@ void tweenToColor(COLOR targetcolor)
 // Example:  tweenToColor("#33FD67")
 void tweenToColor(String strTargetColor, short ww_value = 0, short cw_value = 0)
 {
-    COLOR targetcolor;
-    targetcolor = hex2rgb(strTargetColor, ww_value, cw_value);
+    COLOR targetcolor = hex2rgb(strTargetColor, ww_value, cw_value);
     tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
 }
 // Example:  tweenToColor(0xFFACA5)
-/* void tweenToColor(int hexValue, short ww_value = 0, short cw_value = 0)
-{
-    COLOR targetcolor;
-    targetcolor.r = ((hexValue >> 16) & 0xFF) / 255.0;
-    targetcolor.g = ((hexValue >> 8) & 0xFF) / 255.0;
-    targetcolor.b = ((hexValue) & 0xFF) / 255.0;
-    targetcolor.ww = ww_value;
-    targetcolor.cw = cw_value;
-    tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
-} */
 void tweenToColor(int hexValue, short ww_value = 0, short cw_value = 0)
 {
-    COLOR targetcolor;
-    targetcolor.r = (hexValue >> 16) & 0xFF;
-    targetcolor.g = (hexValue >> 8) & 0xFF;
-    targetcolor.b = hexValue & 0xFF;
-    targetcolor.ww = ww_value;
-    targetcolor.cw = cw_value;
-    tweenToColor(targetcolor.r, targetcolor.g, targetcolor.b, targetcolor.ww, targetcolor.cw);
+    tweenToColor((hexValue >> 16) & 0xFF, (hexValue >> 8) & 0xFF, hexValue & 0xFF, ww_value, cw_value);
 }
-float hue = 0.0;
 
+static void hsvToPerceptual(float h, float s, float v, float out[3])
+{
+    h = fmodf(h, 360.0f) / 60.0f;
+    int i = (int)h;
+    float f = h - i;
+    float p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+    switch (i)
+    {
+    case 0: out[0] = v; out[1] = t; out[2] = p; break;
+    case 1: out[0] = q; out[1] = v; out[2] = p; break;
+    case 2: out[0] = p; out[1] = v; out[2] = t; break;
+    case 3: out[0] = p; out[1] = q; out[2] = v; break;
+    case 4: out[0] = t; out[1] = p; out[2] = v; break;
+    default: out[0] = v; out[1] = p; out[2] = q; break;
+    }
+}
+
+static void ledRenderFrame()
+{
+    float from[5], to[5], alt[5];
+    uint32_t fadeStart, fadeMs;
+    uint8_t fx;
+
+    portENTER_CRITICAL(&ledMux);
+    memcpy(from, ledFrom, sizeof(from));
+    memcpy(to, ledTo, sizeof(to));
+    memcpy(alt, ledAlt, sizeof(alt));
+    fadeStart = ledFadeStart;
+    fadeMs = ledFadeMs;
+    fx = ledFx;
+    portEXIT_CRITICAL(&ledMux);
+
+    uint32_t now = millis();
+    float t = (fadeMs == 0) ? 1.0f : min(1.0f, (float)(now - fadeStart) / (float)fadeMs);
+    float ease = t * t * (3.0f - 2.0f * t); // smoothstep
+
+    float out[5];
+    for (int i = 0; i < 5; i++)
+    {
+        out[i] = from[i] + (to[i] - from[i]) * ease;
+    }
+
+    switch (fx)
+    {
+    case FX_BREATHE:
+    {
+        // 3 s period, never fully dark so the chamber stays visible
+        float k = 0.15f + 0.85f * (0.5f - 0.5f * cosf(2.0f * PI * (float)(now % 3000) / 3000.0f));
+        for (int i = 0; i < 5; i++)
+            out[i] *= k;
+        break;
+    }
+    case FX_BLINK:
+    {
+        float k = ((now / 500) & 1) ? 1.0f : 0.08f;
+        for (int i = 0; i < 5; i++)
+            out[i] *= k;
+        break;
+    }
+    case FX_PROGRESS:
+    {
+        int pct = printerVariables.percent;
+        if (pct >= 0)
+        {
+            float p = constrain(pct, 0, 100) / 100.0f;
+            for (int i = 0; i < 5; i++)
+                out[i] = out[i] + (alt[i] - out[i]) * p * ease;
+        }
+        break;
+    }
+    case FX_RAINBOW:
+    {
+        float v = toPerceptual((int)(255 * printerConfig.brightness / 100.0f));
+        float rgb[3];
+        hsvToPerceptual((float)(now % 12000) * 360.0f / 12000.0f, 1.0f, v, rgb);
+        for (int i = 0; i < 3; i++)
+            out[i] = from[i] + (rgb[i] - from[i]) * ease;
+        out[3] = from[3] * (1.0f - ease);
+        out[4] = from[4] * (1.0f - ease);
+        break;
+    }
+    default:
+        break;
+    }
+
+    portENTER_CRITICAL(&ledMux);
+    memcpy(ledOut, out, sizeof(ledOut));
+    portEXIT_CRITICAL(&ledMux);
+
+    ledcWrite(redChannel, toDuty(out[0]));
+    ledcWrite(greenChannel, toDuty(out[1]));
+    ledcWrite(blueChannel, toDuty(out[2]));
+    ledcWrite(warmChannel, toDuty(out[3]));
+    ledcWrite(coldChannel, toDuty(out[4]));
+}
+
+static void ledTask(void *)
+{
+    for (;;)
+    {
+        ledRenderFrame();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// What the strip is showing right now, for the status page. Hex RGB + WW/CW in 0-255 duty terms.
+void ledGetOutput(char *hexOut, size_t len, int &ww, int &cw, const char *&fxName)
+{
+    float out[5];
+    uint8_t fx;
+    portENTER_CRITICAL(&ledMux);
+    memcpy(out, ledOut, sizeof(out));
+    fx = ledFx;
+    portEXIT_CRITICAL(&ledMux);
+    int v[5];
+    for (int i = 0; i < 5; i++)
+        v[i] = (int)(powf(constrain(out[i], 0.0f, 1.0f), LED_GAMMA) * 255.0f + 0.5f);
+    snprintf(hexOut, len, "#%02X%02X%02X", v[0], v[1], v[2]);
+    ww = v[3];
+    cw = v[4];
+    fxName = ledFxName(fx);
+}
+
+// RGB Cycle ("disco") mode is now rendered by the LED task as FX_RAINBOW
 void RGBCycle()
 {
     if (printerConfig.discoMode == false)
     {
-        // Skip changing colors if RGB Mode not enabled
         printerConfig.discoMode_update = true;
         return;
     }
@@ -174,68 +350,23 @@ void RGBCycle()
         printerConfig.discoMode_update = false;
         if (printerConfig.debugingchange)
         {
-            LogSerial.print(F("["));
-            LogSerial.print(millis());
-            LogSerial.print(F("]"));
-            LogSerial.println(F(" ** RGB Cycle Mode **"));
-        };
+            LogSerial.printf("[%lu] ** RGB Cycle Mode **\n", millis());
+        }
     }
 
     if (printerVariables.online == false)
     {
-        ledcWrite(redChannel, 0);
-        ledcWrite(greenChannel, 0);
-        ledcWrite(blueChannel, 0);
-        ledcWrite(warmChannel, 0);
-        ledcWrite(coldChannel, 0);
+        if (ledFx == FX_RAINBOW || currentRed || currentGreen || currentBlue || currentWarm || currentCold)
+            tweenToColor(0, 0, 0, 0, 0); // OFF while printer is offline
         return;
     }
-    hue += 0.1;
-    if (hue > 360.0)
+    if (ledFx != FX_RAINBOW)
     {
-        hue = 0.0;
+        ledSetNextFx(FX_RAINBOW);
+        tweenToColor(255, 255, 255, 0, 0, 1500);
     }
-
-    currentRed = cos(hue * 3.14 / 180.0) * 255;
-    currentGreen = cos((hue + 120.0) * 3.14 / 180.0) * 255;
-    currentBlue = cos((hue + 240.0) * 3.14 / 180.0) * 255;
-    currentWarm = 0;
-    currentCold = 0;
-
-    // Need to add code so it adjusts to set brightness level
-
-    ledcWrite(redChannel, currentRed);
-    ledcWrite(greenChannel, currentGreen);
-    ledcWrite(blueChannel, currentBlue);
-    ledcWrite(warmChannel, currentWarm);
-    ledcWrite(coldChannel, currentCold);
 }
 
-/* void printLogs(String Desc, COLOR thisColor)
-{
-    if (printerConfig.debuging || printerConfig.debugingchange)
-    {
-        LogSerial.print(Desc);
-        LogSerial.print(F(" - Turning LEDs to: "));
-        if ((thisColor.r + thisColor.g + thisColor.b + thisColor.ww + thisColor.cw) == 0)
-        {
-            LogSerial.println(F(" OFF"));
-            return;
-        }
-        LogSerial.print(F(" r:"));
-        LogSerial.print(thisColor.r);
-        LogSerial.print(F(" g:"));
-        LogSerial.print(thisColor.g);
-        LogSerial.print(F(" b:"));
-        LogSerial.print(thisColor.b);
-        LogSerial.print(F(" ww:"));
-        LogSerial.print(thisColor.ww);
-        LogSerial.print(F(" cw:"));
-        LogSerial.print(thisColor.cw);
-        LogSerial.print(F(" Brightness: "));
-        LogSerial.println(printerConfig.brightness);
-    };
-} */
 void printLogs(String Desc, COLOR thisColor)
 {
     static COLOR lastColor = {-1, -1, -1, -1, -1};
@@ -259,9 +390,9 @@ void printLogs(String Desc, COLOR thisColor)
         }
         else
         {
-            LogSerial.printf(" r:%d g:%d b:%d ww:%d cw:%d Brightness: %d\n",
+            LogSerial.printf(" r:%d g:%d b:%d ww:%d cw:%d Brightness: %d fx:%s\n",
                              thisColor.r, thisColor.g, thisColor.b,
-                             thisColor.ww, thisColor.cw, printerConfig.brightness);
+                             thisColor.ww, thisColor.cw, printerConfig.brightness, ledFxName(ledFx));
         }
     }
 
@@ -280,6 +411,14 @@ void printLogs(String Desc, short r, short g, short b, short ww, short cw)
     tempColor.cw = cw;
     printLogs(Desc, tempColor);
 }
+
+// Shorthand: show a color with an effect
+static void showFx(uint8_t fx, const COLOR &c)
+{
+    ledSetNextFx(fx);
+    tweenToColor(c);
+}
+
 void updateleds()
 {
     // Prevent replicate OFF immediately after door event
@@ -295,10 +434,7 @@ void updateleds()
         tweenToColor(0, 0, 0, 255, 255); // WHITE
         printerConfig.maintMode_update = false;
         printLogs("Maintenance Mode", 0, 0, 0, 255, 255);
-        LogSerial.print(F("["));
-        LogSerial.print(millis());
-        LogSerial.print(F("]"));
-        LogSerial.println(F(" ** Maintenance Mode **"));
+        LogSerial.printf("[%lu] ** Maintenance Mode **\n", millis());
         return;
     }
 
@@ -322,10 +458,8 @@ void updateleds()
                 tweenToColor(255, 255, 0, 0, 0); // YELLOW
             else if (wifiNow >= -80)
                 tweenToColor(255, 128, 0, 0, 0); // ORANGE
-            else if (wifiNow < -80)
-                tweenToColor(255, 0, 0, 0, 0); // RED
             else
-                tweenToColor(0, 0, 255, 0, 0); // BLUE
+                tweenToColor(255, 0, 0, 0, 0); // RED
         };
         return;
     }
@@ -335,10 +469,7 @@ void updateleds()
     {
         tweenToColor(printerConfig.testColor); // Variable Test Color
         printLogs("LED Test ON", printerConfig.testColor);
-        LogSerial.print(F("["));
-        LogSerial.print(millis());
-        LogSerial.print(F("]"));
-        LogSerial.println(F(" ** Test Color Mode **"));
+        LogSerial.printf("[%lu] ** Test Color Mode **\n", millis());
         printerConfig.testcolor_update = false;
         return;
     }
@@ -346,14 +477,6 @@ void updateleds()
     // From here the BBLP status sets the colors
     if (printerConfig.debuging == true)
     {
-        /*         LogSerial.println(F("Updating LEDs"));
-
-                LogSerial.println(printerVariables.stage);
-                LogSerial.println(printerVariables.gcodeState);
-                LogSerial.println(printerVariables.printerledstate);
-                LogSerial.println(printerVariables.hmsstate);
-                LogSerial.println(printerVariables.parsedHMSlevel); */
-
         char ledDbgStr[128];
         snprintf(ledDbgStr, sizeof(ledDbgStr),
                  "[LED] Stage:%d gcodeState:%s printerLedState:%s HMSErr:%s ParsedHMS:%s",
@@ -385,36 +508,7 @@ void updateleds()
     }
 
     // TOGGLE LIGHTS via DOOR
-    // If door is closed twice in 6 seconds, it will flip the state of the lights
-    /*     if (printerVariables.doorSwitchTriggered == true)
-        {
-            if (printerConfig.debugingchange)
-            {
-                LogSerial.print(F("Door closed twice within 6 seconds - Toggling LEDs to "));
-            }
-            if (currentWarm == 0 && currentCold == 0)
-            {
-                tweenToColor(0, 0, 0, 255, 255); // WHITE
-                if (printerConfig.debuging || printerConfig.debugingchange)
-                {
-                    LogSerial.println(F("ON"));
-                }
-                printerConfig.isIdleOFFActive = false;
-            }
-            else
-            {
-                tweenToColor(0, 0, 0, 0, 0); // OFF
-                // Shortcut to idle state - note: light will go back on immediately if there is an MQTT change of any sort
-                printerConfig.isIdleOFFActive = true;
-                printerConfig.inactivityStartms = (millis() - printerConfig.inactivityTimeOut);
-                if (printerConfig.debuging || printerConfig.debugingchange)
-                {
-                    LogSerial.println(F("OFF"));
-                }
-            }
-            printerVariables.doorSwitchTriggered = false;
-            return;
-        } */
+    // If door is closed twice within 2 seconds, it will flip the state of the lights
     if (printerVariables.doorSwitchTriggered == true)
     {
         bool ledsAreOff = (currentWarm == 0 && currentCold == 0);
@@ -423,12 +517,7 @@ void updateleds()
         if (printerConfig.debugingchange)
         {
             LogSerial.print(F("Door closed twice within 2 seconds - "));
-
-            if (ledsAreOff)
-                LogSerial.print(F("Turning LEDs ON"));
-            else
-                LogSerial.print(F("Turning LEDs OFF"));
-
+            LogSerial.print(ledsAreOff ? F("Turning LEDs ON") : F("Turning LEDs OFF"));
             if (printerConfig.controlChamberLight)
             {
                 if (ledsAreOff && chamberLightIsOff)
@@ -470,16 +559,24 @@ void updateleds()
         return;
     }
 
+    // Wrong access code: blink dim red until it's fixed (printer refuses the MQTT login)
+    if (printerVariables.online == false && printerVariables.mqttAuthFailed)
+    {
+        ledSetNextFx(FX_BLINK);
+        tweenToColor(127, 0, 0, 0, 0);
+        printLogs("MQTT login refused (check access code)", 127, 0, 0, 0, 0);
+        return;
+    }
+
     // RED -- RED -- RED -- RED
 
     // allow errordetection to turn ledstrip red
     if (printerConfig.errordetection == true)
     {
-
         // Fillament runout
         if (printerVariables.stage == 6 || printerVariables.overridestage == 6)
         {
-            tweenToColor(printerConfig.filamentRunoutRGB); // Customisable - Default is RED
+            showFx(printerConfig.errorFx, printerConfig.filamentRunoutRGB);
             printLogs("Stage 6, FILAMENT RUNOUT", printerConfig.filamentRunoutRGB);
             return;
         };
@@ -487,7 +584,7 @@ void updateleds()
         // Front Cover Removed
         if (printerVariables.stage == 17 || printerVariables.overridestage == 17)
         {
-            tweenToColor(printerConfig.frontCoverRGB); // Customisable - Default is RED
+            showFx(printerConfig.errorFx, printerConfig.frontCoverRGB);
             printLogs("Stage 17, FRONT COVER REMOVED", printerConfig.frontCoverRGB);
             return;
         };
@@ -495,7 +592,7 @@ void updateleds()
         // Nozzle Temp fail
         if (printerVariables.stage == 20 || printerVariables.overridestage == 20)
         {
-            tweenToColor(printerConfig.nozzleTempRGB); // Customisable - Default is RED
+            showFx(printerConfig.errorFx, printerConfig.nozzleTempRGB);
             printLogs("Stage 20, NOZZLE TEMP FAIL", printerConfig.nozzleTempRGB);
             return;
         };
@@ -503,17 +600,15 @@ void updateleds()
         // Bed Temp Fail
         if (printerVariables.stage == 21 || printerVariables.overridestage == 21)
         {
-            tweenToColor(printerConfig.bedTempRGB); // Customisable - Default is RED
+            showFx(printerConfig.errorFx, printerConfig.bedTempRGB);
             printLogs("Stage 21, BED TEMP FAIL", printerConfig.bedTempRGB);
             return;
         };
         // SERIOUS HMS state
         if (printerVariables.parsedHMSlevel == "Serious")
         {
-            tweenToColor(printerConfig.hmsSeriousRGB); // Customisable - Default is RED
-            LogSerial.print(F("HMS SERIOUS Severity      "));
-            LogSerial.print(F("Error Code: "));
-            LogSerial.printf("%016llX\n", printerVariables.parsedHMScode);
+            showFx(printerConfig.errorFx, printerConfig.hmsSeriousRGB);
+            LogSerial.printf("HMS SERIOUS Severity      Error Code: %016llX\n", printerVariables.parsedHMScode);
             printLogs("PROBLEM", printerConfig.hmsSeriousRGB);
             return;
         };
@@ -521,10 +616,8 @@ void updateleds()
         // FATAL HMS state
         if (printerVariables.parsedHMSlevel == "Fatal")
         {
-            tweenToColor(printerConfig.hmsFatalRGB); // Customisable - Default is RED
-            LogSerial.print(F("HMS FATAL Severity      "));
-            LogSerial.print(F("Error Code: "));
-            LogSerial.printf("%016llX\n", printerVariables.parsedHMScode);
+            showFx(printerConfig.errorFx, printerConfig.hmsFatalRGB);
+            LogSerial.printf("HMS FATAL Severity      Error Code: %016llX\n", printerVariables.parsedHMScode);
             printLogs("PROBLEM", printerConfig.hmsFatalRGB);
             return;
         };
@@ -535,7 +628,7 @@ void updateleds()
     // Pause (by user or via Gcode)
     if ((printerVariables.stage == 16 || printerVariables.stage == 30) || printerVariables.gcodeState == "PAUSE")
     {
-        tweenToColor(printerConfig.pauseRGB); // Customisable - Default is BLUE
+        showFx(printerConfig.pauseFx, printerConfig.pauseRGB);
         printLogs("Stage 16, gcodeState pause, PAUSED", printerConfig.pauseRGB);
         return;
     }
@@ -543,7 +636,7 @@ void updateleds()
     // First Layer Error PAUSED
     if (printerVariables.stage == 34)
     {
-        tweenToColor(printerConfig.firstlayerRGB); // Customisable - Default is BLUE
+        showFx(printerConfig.pauseFx, printerConfig.firstlayerRGB);
         printLogs("Stage 34, FIRST LAYER ERROR, PAUSED", printerConfig.firstlayerRGB);
         return;
     }
@@ -551,14 +644,14 @@ void updateleds()
     // Nozzle Clog PAUSED
     if (printerVariables.stage == 35)
     {
-        tweenToColor(printerConfig.nozzleclogRGB); // Customisable - Default is BLUE
+        showFx(printerConfig.pauseFx, printerConfig.nozzleclogRGB);
         printLogs("Stage 35, NOZZLE CLOG, PAUSED", printerConfig.nozzleclogRGB);
         return;
     }
 
     // OFF -- OFF -- OFF -- OFF
 
-    // printer offline and MQTT disconnect more than 5 seconds.
+    // printer offline and MQTT disconnected for more than 30 seconds.
     if (printerVariables.online == false && (millis() - printerVariables.disconnectMQTTms) >= 30000)
     {
         tweenToColor(0, 0, 0, 0, 0); // OFF
@@ -626,14 +719,12 @@ void updateleds()
     // Idle Timeout (Has to be enabled)
     if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !((printerConfig.finishExit && printerVariables.waitingForDoor) || (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < printerConfig.finishTimeOut))) && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerConfig.isIdleOFFActive == false && printerConfig.inactivityEnabled)
     {
-        tweenToColor(0, 0, 0, 0, 0); // OFF
-        controlChamberLight(false);  // Turn off chamber light via MQTT
+        tweenToColor(0, 0, 0, 0, 0, 2000); // OFF, slow fade
+        controlChamberLight(false);        // Turn off chamber light via MQTT
         printerConfig.isIdleOFFActive = true;
         if (printerConfig.debuging || printerConfig.debugingchange)
         {
-            LogSerial.print(F("Idle Timeout ["));
-            LogSerial.print((int)(printerConfig.inactivityTimeOut / 60000));
-            LogSerial.println(F(" mins] - Turning LEDs OFF"));
+            LogSerial.printf("Idle Timeout [%d mins] - Turning LEDs OFF\n", (int)(printerConfig.inactivityTimeOut / 60000));
         };
         return;
     }
@@ -651,7 +742,15 @@ void updateleds()
     // Printing or Resume after Pausing
     if (printerVariables.stage == 0 && printerVariables.gcodeState == "RUNNING")
     {
-        tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
+        if (printerConfig.progressFx)
+        {
+            ledSetProgressTarget(printerConfig.finishColor);
+            showFx(FX_PROGRESS, printerConfig.runningColor);
+        }
+        else
+        {
+            tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
+        }
         printLogs("Stage 0, PRINTING - gcodeState RUNNING", printerConfig.runningColor);
         return;
     }
@@ -683,7 +782,8 @@ void updateleds()
     if (printerVariables.stage == 13)
     {
         // No color change assigned
-        LogSerial.println(F("STAGE 13, HOMING TOOL HEAD"));
+        if (printerConfig.debugingchange)
+            LogSerial.println(F("STAGE 13, HOMING TOOL HEAD"));
         return;
     }
 
@@ -700,7 +800,7 @@ void updateleds()
     // Sets to green when print finishes AND user wants Finish Indication enabled
     if (printerVariables.finished == true && printerConfig.finishindication == true)
     {
-        tweenToColor(printerConfig.finishColor); // Customisable - Default is GREEN
+        showFx(printerConfig.finishFx, printerConfig.finishColor);
         printLogs("Finished print", printerConfig.finishColor);
         printerVariables.finished = false;
         return;
@@ -737,16 +837,36 @@ void setupLeds()
     ledcAttachPin(bluePin, blueChannel);
     ledcAttachPin(warmPin, warmChannel);
     ledcAttachPin(coldPin, coldChannel);
+
+    if (ledTaskHandle == NULL)
+    {
+#if CONFIG_FREERTOS_UNICORE
+        xTaskCreate(ledTask, "ledTask", 3072, NULL, 2, &ledTaskHandle);
+#else
+        xTaskCreatePinnedToCore(ledTask, "ledTask", 3072, NULL, 2, &ledTaskHandle, 1);
+#endif
+    }
 }
 
 void ledsloop()
 {
+    // Work requested by the MQTT task or web server runs here, on the main task,
+    // so the LED state logic is never run from two tasks at once.
+    if (ledUpdateRequested)
+    {
+        ledUpdateRequested = false;
+        updateleds();
+    }
+    if (ledOffRequested)
+    {
+        ledOffRequested = false;
+        tweenToColor(0, 0, 0, 0, 0);
+    }
+
     RGBCycle();
     if ((millis() - lastUpdatems) > 30000 && (printerConfig.maintMode || printerConfig.testcolorEnabled || printerConfig.discoMode || printerConfig.debugwifi))
     {
-        LogSerial.print(F("["));
-        LogSerial.print(millis());
-        LogSerial.print(F("]"));
+        LogSerial.printf("[%lu]", millis());
         if (printerConfig.maintMode)
             LogSerial.println(F(" Maintenance Mode - next update in 30 seconds"));
         if (printerConfig.testcolorEnabled)
@@ -754,7 +874,10 @@ void ledsloop()
         if (printerConfig.discoMode)
             LogSerial.println(F(" RGB Cycle Mode - next update in 30 seconds"));
         if (printerConfig.debugwifi)
+        {
             LogSerial.println(F(" Wifi Debug Mode - next update in 30 seconds"));
+            updateleds(); // refresh the signal-strength color
+        }
         lastUpdatems = millis();
     }
 
@@ -792,25 +915,26 @@ void ledsloop()
         // Opening or Closing the Door will turn LEDs back on and restart the timer.
         updateleds();
     }
-    // disabled, need testing for future use
-    /*     // Periodic fallback update to ensure MQTT timeout or other updates are evaluated
-        static unsigned long lastPeriodicUpdate = 0;
-        if (millis() - lastPeriodicUpdate > 10000) { // every 10 seconds
-            updateleds();
-            lastPeriodicUpdate = millis();
-        } */
 
-        // Auto turn off chamber light after timeout when door is closed
-if (printerVariables.chamberLightLocked &&
-    !printerVariables.doorOpen &&
-    (millis() - printerConfig.inactivityStartms > printerConfig.inactivityTimeOut))
-{
-    controlChamberLight(false);
-    printerVariables.chamberLightLocked = false;
+    // Offline check: the 30 s grace period ends without any MQTT event, so re-evaluate periodically
+    static unsigned long lastOfflineCheck = 0;
+    if (!printerVariables.online && millis() - lastOfflineCheck > 5000)
+    {
+        lastOfflineCheck = millis();
+        updateleds();
+    }
 
-    if (printerConfig.debugingchange)
-        LogSerial.println(F("[LED] Timeout – Chamber light OFF and lock released"));
-}
+    // Auto turn off chamber light after timeout when door is closed
+    if (printerVariables.chamberLightLocked &&
+        !printerVariables.doorOpen &&
+        (millis() - printerConfig.inactivityStartms > printerConfig.inactivityTimeOut))
+    {
+        controlChamberLight(false);
+        printerVariables.chamberLightLocked = false;
+
+        if (printerConfig.debugingchange)
+            LogSerial.println(F("[LED] Timeout – Chamber light OFF and lock released"));
+    }
     delay(10);
 }
 

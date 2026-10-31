@@ -2,6 +2,31 @@
 
 The BL Led Controller is an ESP32 based device that connects to your Bambulab X1,X1C,P1P Or P1S and controls the LED strip based on the state of the printer.
 
+> **Unofficial fork (2.4.0)** of DutchDevelop's BLLEDController 2.3.0, released under the same CC BY-NC-SA 4.0 license. Not made or endorsed by DutchDevelop or Bambu Lab. Changes are listed below.
+
+### What's new in 2.4.0
+
+**Connection stability**
+- LED changes no longer block the MQTT task. The old fade ran ~500 ms of `delay()` inside the MQTT callback, so every color change stalled the connection the printer expects to be serviced.
+- MQTT reconnects back off 2 s → 60 s instead of retrying every 3 s; a refused access code waits 60 s and the strip blinks dim red until it's fixed.
+- A watchdog rebuilds a connection that has gone silent for 2 minutes.
+- After every reconnect the controller asks the printer for a full status report (`pushall`), so the LEDs are correct immediately.
+- Only the MQTT task touches the MQTT client (PubSubClient isn't thread-safe); chamber-light commands from other tasks are queued.
+- Wi-Fi power-save is off (it causes latency spikes that get MQTT clients dropped). Wi-Fi recovery retries every 10 s and rescans for the strongest access point after about a minute, instead of reconnecting on every loop pass.
+- Fixed: the setup hotspot's captive-portal DNS was never serviced.
+
+**LED effects**
+- Real cross-fades (the old fade's integer math rounded every step to 0, so it waited and then jumped), on 12-bit PWM with gamma-correct easing. Steady colors land on exactly the same PWM level as before, so existing color and brightness settings look the same.
+- Effects per state: solid, breathe or blink for pause/first-layer/clog, errors and finish (defaults: breathe, blink, breathe).
+- Optional progress glow: while printing, the running color blends toward the finish color as the print advances.
+- RGB cycle mode now respects brightness and no longer writes negative PWM values.
+- All of this is under **Settings → Effects**, with an adjustable fade time.
+
+**Web UI**
+- New **Live Status** page at `/status`: what the strip is showing, print progress, layer, time left, temperatures, connection health (signal, reconnects, Wi-Fi drops, last message), door and chamber light.
+- New `GET /api/status` JSON endpoint with the same data (uses the WebUI login if one is set), handy for Home Assistant REST sensors or phone shortcuts.
+- HMS ignore list accepts codes with or without the `HMS_` prefix, in any case.
+
 ### Flashing and Setup
 1. go to the [Web Flasher](https://dutchdevelop.github.io/blledsetup/) (Or [here](https://softwarecrash.github.io/BLLED-Flasher/) for Nightly and Dev builds)
 2. connect your ESP32

@@ -124,6 +124,12 @@ void saveFileSystem()
     json["bedTempCW"] = printerConfig.bedTempRGB.cw;
     //HMS Error handling
     json["hmsIgnoreList"] = printerConfig.hmsIgnoreList;
+    // Effects
+    json["fadeMs"] = printerConfig.fadeMs;
+    json["pauseFx"] = printerConfig.pauseFx;
+    json["errorFx"] = printerConfig.errorFx;
+    json["finishFx"] = printerConfig.finishFx;
+    json["progressFx"] = printerConfig.progressFx;
 
     File configFile = LittleFS.open(configPath, "w");
     if (!configFile)
@@ -228,6 +234,12 @@ void loadFileSystem()
         printerConfig.bedTempRGB = hex2rgb(json["bedTempRGB"], json["bedTempWW"], json["bedTempCW"]);
         // HMS Error handling
         printerConfig.hmsIgnoreList = json["hmsIgnoreList"] | "";
+        // Effects (defaults apply to configs saved by older firmware)
+        printerConfig.fadeMs = constrain((int)(json["fadeMs"] | 600), 0, 5000);
+        printerConfig.pauseFx = constrain((int)(json["pauseFx"] | 1), 0, 2);
+        printerConfig.errorFx = constrain((int)(json["errorFx"] | 2), 0, 2);
+        printerConfig.finishFx = constrain((int)(json["finishFx"] | 1), 0, 2);
+        printerConfig.progressFx = json["progressFx"] | false;
 
         LogSerial.println(F("[Filesystem] Loaded config"));
     }
