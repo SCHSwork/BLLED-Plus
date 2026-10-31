@@ -46,7 +46,8 @@ enum LedFx : uint8_t
     FX_BREATHE = 1,
     FX_BLINK = 2,
     FX_PROGRESS = 3,
-    FX_RAINBOW = 4
+    FX_RAINBOW = 4,
+    FX_PULSE = 5 // slow, shallow pulse used for filament color
 };
 
 const char *ledFxName(uint8_t fx)
@@ -57,6 +58,7 @@ const char *ledFxName(uint8_t fx)
     case FX_BLINK: return "blink";
     case FX_PROGRESS: return "progress";
     case FX_RAINBOW: return "rainbow";
+    case FX_PULSE: return "pulse";
     default: return "solid";
     }
 }
@@ -333,6 +335,14 @@ static void ledRenderFrame()
     {
         // 3 s period, never fully dark so the chamber stays visible
         float k = 0.15f + 0.85f * (0.5f - 0.5f * cosf(2.0f * PI * (float)(now % 3000) / 3000.0f));
+        for (int i = 0; i < 5; i++)
+            out[i] *= k;
+        break;
+    }
+    case FX_PULSE:
+    {
+        // 6 s period, only dips to ~55% - a gentle glow rather than a flash
+        float k = 0.55f + 0.45f * (0.5f + 0.5f * cosf(2.0f * PI * (float)(now % 6000) / 6000.0f));
         for (int i = 0; i < 5; i++)
             out[i] *= k;
         break;
@@ -820,9 +830,14 @@ void updateleds()
             ledSetProgressTarget(printerConfig.finishColor);
             showFx(FX_PROGRESS, base);
         }
+        else if (useFilament)
+        {
+            ledSetNextFx(FX_PULSE); // filament color gently pulses instead of sitting solid
+            tweenToColor(base, 1500); // slower fade so a filament swap reads as a color change
+        }
         else
         {
-            tweenToColor(base, 1500); // slower fade so a filament swap reads as a color change
+            tweenToColor(base);
         }
         printLogs(useFilament ? "Stage 0, PRINTING - filament color" : "Stage 0, PRINTING - gcodeState RUNNING", base);
         return;

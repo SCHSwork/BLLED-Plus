@@ -216,7 +216,7 @@
             <div class="group">
                 <h2>While printing</h2>
                 <label class="row">
-                    <span class="txt"><b>Filament color</b><small>The strip glows in the color of the filament being printed and changes when the AMS swaps spools. Black and white filament use your printing color.</small></span>
+                    <span class="txt"><b>Filament color</b><small>The strip gently pulses in the color of the filament being printed and changes when the AMS swaps spools. Black and white filament use your printing color.</small></span>
                     <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
                 </label>
                 <label class="row">
@@ -470,14 +470,14 @@
         $('undo').addEventListener('click', loadConfig);
 
         // ---- Live strip ----
-        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow' };
+        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow', pulse: 'Filament color' };
         const STATES = { RUNNING: 'Printing', PAUSE: 'Paused', FINISH: 'Finished', IDLE: 'Idle', FAILED: 'Cancelled', PREPARE: 'Starting a print' };
         const MODES = { maintenance: 'Always on', rgbcycle: 'Rainbow', test: 'Test color', wifidebug: 'Showing Wi-Fi signal', 'idle-off': 'Off while idle' };
 
         function render(d) {
             const m = mix(d.ledRGB, d.ledWW, d.ledCW);
             const strip = $('strip');
-            strip.className = 'strip' + (m.off && d.ledFx !== 'rainbow' ? ' off' : '') + (['breathe', 'blink', 'rainbow'].includes(d.ledFx) ? ' ' + d.ledFx : '');
+            strip.className = 'strip' + (m.off && d.ledFx !== 'rainbow' ? ' off' : '') + (['breathe', 'blink', 'rainbow', 'pulse'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', d.ledFx === 'rainbow' ? '#ff5f5f' : m.css);
 
             let state;

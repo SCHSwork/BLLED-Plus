@@ -127,7 +127,7 @@
             35: 'Paused: nozzle clog'
         };
         const MODES = { auto: 'Following the printer', maintenance: 'Always on', rgbcycle: 'Rainbow', test: 'Test color', wifidebug: 'Showing Wi-Fi signal', 'idle-off': 'Off while idle' };
-        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow' };
+        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow', pulse: 'Filament color' };
         const $ = id => document.getElementById(id);
         const set = (id, v) => { $(id).textContent = v; };
 
@@ -162,7 +162,7 @@
 
             const m = mix(d.ledRGB, d.ledWW, d.ledCW);
             const rainbow = d.ledFx === 'rainbow';
-            $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow'].includes(d.ledFx) ? ' ' + d.ledFx : '');
+            $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow', 'pulse'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
             set('stateFx', (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 

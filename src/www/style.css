@@ -130,9 +130,11 @@ body {
 .strip.breathe { animation: breathe 3s ease-in-out infinite; }
 .strip.blink { animation: blink 1s steps(1) infinite; }
 .strip.rainbow { animation: rainbow 12s linear infinite; }
+.strip.pulse { animation: pulse 6s ease-in-out infinite; }
 @keyframes breathe { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 @keyframes blink { 50% { opacity: 0.12; } }
 @keyframes rainbow { to { filter: hue-rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 .caption {
   display: flex;
