@@ -656,6 +656,28 @@ void updateleds()
         printLogs("Door open - work light", 0, 0, 0, 255, 255);
         return;
     }
+    // The door was opened while the lights were off: closing it turns them off again
+    if (printerVariables.ledWasForcedByDoor && !printerVariables.doorOpen && !printerVariables.doorSwitchTriggered)
+    {
+        printerVariables.ledWasForcedByDoor = false;
+        bool printing = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+        if (!printing)
+        {
+            workLightOn = false;
+            tweenToColor(0, 0, 0, 0, 0, 1500);
+            // Back to the idle-off state, as if the inactivity timer had run out
+            printerConfig.isIdleOFFActive = true;
+            printerConfig.inactivityStartms = millis() - printerConfig.inactivityTimeOut - 1;
+            if (printerConfig.controlChamberLight && printerVariables.chamberLightLocked)
+            {
+                controlChamberLight(false);
+                printerVariables.chamberLightLocked = false;
+            }
+            printLogs("Door closed - back to off", 0, 0, 0, 0, 0);
+            return;
+        }
+    }
+
     if (workLightOn)
     {
         workLightOn = false;
@@ -669,6 +691,7 @@ void updateleds()
     // If door is closed twice within 2 seconds, it will flip the state of the lights
     if (printerVariables.doorSwitchTriggered == true)
     {
+        printerVariables.ledWasForcedByDoor = false;
         bool ledsAreOff = (currentWarm == 0 && currentCold == 0);
         bool chamberLightIsOff = (printerVariables.printerledstate == false);
 

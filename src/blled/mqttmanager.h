@@ -448,6 +448,12 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             {
                 printerVariables.lastdoorOpenms = millis();
 
+                // Remember if the strip was dark when the door opened, so closing the door can put it
+                // back to dark (the door only "borrows" the light). Not during a print.
+                bool stripDark = currentRed == 0 && currentGreen == 0 && currentBlue == 0 && currentWarm == 0 && currentCold == 0;
+                bool printing = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+                printerVariables.ledWasForcedByDoor = stripDark && !printing;
+
                 // If light is off, turn it on and lock it
                 if (printerConfig.controlChamberLight && !printerVariables.printerledstate)
                 {
