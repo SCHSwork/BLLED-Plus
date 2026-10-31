@@ -62,7 +62,8 @@ extern "C"
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools
         unsigned long coolStartMs = 0;
-        bool celebratePending = false;    // play the finish celebration once per finished print
+        bool celebratePending = false;
+        unsigned long filamentPreviewUntil = 0; // show a just-loaded spool's color until this time    // play the finish celebration once per finished print
 
         // Connection health
         bool mqttAuthFailed = false;      // printer refused the access code

@@ -320,6 +320,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     }
 
     bool filamentChanged = false;
+    bool targetChanged = false; // bed / nozzle target temperature set or cleared
 
     // Live print data - recorded even in override modes so the status page stays current
     JsonObject print = messageobject["print"];
@@ -336,11 +337,21 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         if (!print["nozzle_temper"].isNull())
             printerVariables.nozzleTemp = print["nozzle_temper"].as<float>();
         if (!print["nozzle_target_temper"].isNull())
-            printerVariables.nozzleTarget = print["nozzle_target_temper"].as<float>();
+        {
+            float t = print["nozzle_target_temper"].as<float>();
+            if (t != printerVariables.nozzleTarget)
+                targetChanged = true;
+            printerVariables.nozzleTarget = t;
+        }
         if (!print["bed_temper"].isNull())
             printerVariables.bedTemp = print["bed_temper"].as<float>();
         if (!print["bed_target_temper"].isNull())
-            printerVariables.bedTarget = print["bed_target_temper"].as<float>();
+        {
+            float t = print["bed_target_temper"].as<float>();
+            if (t != printerVariables.bedTarget)
+                targetChanged = true;
+            printerVariables.bedTarget = t;
+        }
         if (!print["chamber_temper"].isNull())
             printerVariables.chamberTemp = print["chamber_temper"].as<float>();
         if (!print["subtask_name"].isNull())
@@ -394,6 +405,10 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         if (strcmp(beforeHex, activeFilamentHex()) != 0)
         {
             filamentChanged = true;
+            // Outside a print, briefly show the new spool's color (filament preview)
+            bool printingNow = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE";
+            if (!printingNow && strlen(activeFilamentHex()) == 6)
+                printerVariables.filamentPreviewUntil = millis() + 30000;
             if (printerConfig.debugingchange)
                 LogSerial.printf("[MQTT] Active filament color now: %s (slot %d)\n",
                                  strlen(activeFilamentHex()) ? activeFilamentHex() : "none", printerVariables.trayNow);
@@ -715,6 +730,9 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
     // An AMS swap mid-print changes the strip color when filament color mode is on
     if (filamentChanged && printerConfig.filamentColorFx)
+        Changed = true;
+    // Setting a temperature on the printer screen wakes the lights (and starts the heat-up glow)
+    if (targetChanged && printerConfig.heatGlowFx)
         Changed = true;
 
     if (Changed == true)

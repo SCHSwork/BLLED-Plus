@@ -13,3 +13,4 @@ src/www/www.h
 data/
 settings-backup.json
 *.log
+*.bin.ota

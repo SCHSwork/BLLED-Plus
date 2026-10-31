@@ -520,17 +520,40 @@ bool holdingFinish()
            printerVariables.coolWaiting;
 }
 
-// Heat-up glow: cool blue -> warm orange as the bed and nozzle approach their targets
+bool printingState()
+{
+    return printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+}
+
+// A part is heating when it has a target and is still clearly below it
+bool bedHeating() { return printerVariables.bedTarget > 30 && printerVariables.bedTemp < printerVariables.bedTarget - 3; }
+bool nozzleHeating() { return printerVariables.nozzleTarget > 30 && printerVariables.nozzleTemp < printerVariables.nozzleTarget - 5; }
+
+// Heat-up glow applies while the printer preheats for a print (stage 2 bed, 7 hotend), or whenever
+// the bed or nozzle is heating outside a print (e.g. set from the printer screen)
+bool heatGlowActive()
+{
+    if (!printerConfig.heatGlowFx)
+        return false;
+    if (printerVariables.stage == 2 || printerVariables.stage == 7)
+        return true;
+    // Outside a print; never over a finished print's color or its cool-down hold
+    return !printingState() && !printerVariables.finished && !holdingFinish() && (bedHeating() || nozzleHeating());
+}
+
+// Heat-up glow: cool blue -> warm orange as the heating parts approach their targets
 COLOR heatGlowColor()
 {
     float sum = 0;
     int n = 0;
-    if (printerVariables.bedTarget > 30)
+    bool any = bedHeating() || nozzleHeating();
+    // Only parts still heating count (a bed already at temperature shouldn't make a cold nozzle look warm)
+    if (printerVariables.bedTarget > 30 && (!any || bedHeating()))
     {
         sum += constrain((printerVariables.bedTemp - 25.0f) / (printerVariables.bedTarget - 25.0f), 0.0f, 1.0f);
         n++;
     }
-    if (printerVariables.nozzleTarget > 30)
+    if (printerVariables.nozzleTarget > 30 && (!any || nozzleHeating()))
     {
         sum += constrain((printerVariables.nozzleTemp - 25.0f) / (printerVariables.nozzleTarget - 25.0f), 0.0f, 1.0f);
         n++;
@@ -830,6 +853,32 @@ void updateleds()
         return;
     }
 
+    // HEAT / FILAMENT PREVIEW -- these also run outside a print, so they come before the "off" states
+
+    // Heat-up glow while preheating for a print, or while the bed / nozzle heats from the screen
+    if (printerVariables.online && heatGlowActive())
+    {
+        COLOR c = heatGlowColor();
+        tweenToColor(c, 1500);
+        printLogs("Heating - heat-up glow", c);
+        return;
+    }
+
+    // Filament preview: while loading / unloading (stages 24 / 22), and for 30 s after a different
+    // spool becomes active outside a print, show that spool's color
+    {
+        COLOR c;
+        bool loading = printerVariables.stage == 22 || printerVariables.stage == 24;
+        bool preview = !printingState() && (int32_t)(printerVariables.filamentPreviewUntil - millis()) > 0;
+        if (printerVariables.online && printerConfig.filamentColorFx && (loading || preview) && filamentLedColor(c))
+        {
+            ledSetNextFx(FX_PULSE);
+            tweenToColor(c, 1500);
+            printLogs(loading ? "Loading filament - filament color" : "New spool - filament color preview", c);
+            return;
+        }
+    }
+
     // OFF -- OFF -- OFF -- OFF
 
     // printer offline and MQTT disconnected for more than 30 seconds.
@@ -911,15 +960,6 @@ void updateleds()
     }
 
     // ON -- ON -- ON -- ON
-
-    // Heat-up glow while the bed (2) or hotend (7) heats
-    if (printerConfig.heatGlowFx && (printerVariables.stage == 2 || printerVariables.stage == 7))
-    {
-        COLOR c = heatGlowColor();
-        tweenToColor(c, 1500);
-        printLogs("Heating - heat-up glow", c);
-        return;
-    }
 
     // Preheating Bed
     if (printerVariables.stage == 2)
@@ -1156,12 +1196,32 @@ void ledsloop()
     }
 
     // Heat-up glow follows the temperatures, which change without any state change
+    // (also catches the moment heating finishes, so the strip returns to normal)
     static unsigned long lastHeatRefresh = 0;
-    if (printerConfig.heatGlowFx && (printerVariables.stage == 2 || printerVariables.stage == 7) && millis() - lastHeatRefresh > 2000)
+    static bool wasHeating = false;
+    bool heatingNow = heatGlowActive();
+    if ((heatingNow || wasHeating) && millis() - lastHeatRefresh > 2000)
     {
         lastHeatRefresh = millis();
+        if (!heatingNow)
+        {
+            printerConfig.replicate_update = true; // let the normal state re-apply
+            printerConfig.isIdleOFFActive = false;
+            printerConfig.inactivityStartms = millis();
+        }
+        wasHeating = heatingNow;
         updateleds();
     }
+
+    // Filament preview ends after 30 s
+    static bool previewWasOn = false;
+    bool previewOn = (int32_t)(printerVariables.filamentPreviewUntil - millis()) > 0;
+    if (previewWasOn && !previewOn)
+    {
+        printerConfig.replicate_update = true;
+        updateleds();
+    }
+    previewWasOn = previewOn;
 
     // Need an trigger action to run updateleds() so lights turn off
     // There is no change in the printer STATE, just monitoring the timer and triggering when over a threshhold
