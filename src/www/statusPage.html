@@ -165,7 +165,7 @@
             const rainbow = d.ledFx === 'rainbow';
             $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow', 'pulse'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
-            set('stateFx', (d.workLight ? 'Work light' : '') || (d.timelapse && d.gcodeState === 'RUNNING' ? 'Timelapse' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
+            set('stateFx', (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.workLight ? 'Work light' : '') || (d.timelapse && d.gcodeState === 'RUNNING' ? 'Timelapse' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');

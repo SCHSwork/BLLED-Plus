@@ -87,6 +87,27 @@ static uint8_t ledNextFx = FX_SOLID;         // applied by the next tweenToColor
 static TaskHandle_t ledTaskHandle = NULL;
 static volatile uint32_t celebrateUntil = 0; // finish celebration: fast rainbow until this time
 
+// Preview from the settings page: show a color + effect on the real strip for a few seconds
+static volatile uint32_t previewUntil = 0;
+static COLOR previewColor;
+static volatile uint8_t previewFx = 0;
+static volatile bool previewStarted = false;
+
+void startPreview(const COLOR &c, uint8_t fx, uint32_t ms, bool celebrate)
+{
+    previewColor = c;
+    previewFx = fx;
+    previewUntil = millis() + ms;
+    previewStarted = true;
+    if (celebrate)
+        celebrateUntil = millis() + 3000;
+}
+
+bool previewActive()
+{
+    return previewUntil && (int32_t)(previewUntil - millis()) > 0;
+}
+
 // Requests from other tasks (MQTT, web) - handled in ledsloop() on the main task
 volatile bool ledUpdateRequested = false;
 volatile bool ledOffRequested = false;
@@ -570,6 +591,18 @@ COLOR heatGlowColor()
     return c;
 }
 
+// 0 outside the "almost done" window; rises to 1 as the print's remaining time runs out
+float almostDoneBlend()
+{
+    if (!printerConfig.almostDoneEnabled || printerVariables.gcodeState != "RUNNING" || printerVariables.stage != 0)
+        return 0.0f;
+    int left = printerVariables.remainingMins, window = max(1, printerConfig.almostDoneMins);
+    if (left < 0 || left > window || printerVariables.percent <= 0)
+        return 0.0f;
+    // At "window" minutes left: 0.2 (a visible first step); at 0 left: 1.0
+    return 0.2f + 0.8f * (float)(window - left) / (float)window;
+}
+
 bool isLidarStage(int st)
 {
     return st == 1 || st == 8 || st == 9 || st == 10 || st == 12 || st == 14;
@@ -584,6 +617,14 @@ static void showFx(uint8_t fx, const COLOR &c)
 
 void updateleds()
 {
+    if (previewActive())
+    {
+        ledSetNextFx(previewFx);
+        tweenToColor(previewColor, 300);
+        printLogs("Preview", previewColor);
+        return;
+    }
+
     // Prevent replicate OFF immediately after door event
     if ((millis() - printerVariables.lastdoorOpenms) < 1000 || (millis() - printerVariables.lastdoorClosems) < 1000)
     {
@@ -974,6 +1015,17 @@ void updateleds()
     {
         COLOR base = printerConfig.runningColor; // Customisable - Default is WHITE
         bool useFilament = printerConfig.filamentColorFx && filamentLedColor(base);
+        // Almost done: in the last minutes, blend toward the finish color as a heads-up
+        if (almostDoneBlend() > 0.0f && !printerConfig.progressFx)
+        {
+            float k = almostDoneBlend();
+            const COLOR &f = printerConfig.finishColor;
+            base.r = (short)(base.r + (f.r - base.r) * k);
+            base.g = (short)(base.g + (f.g - base.g) * k);
+            base.b = (short)(base.b + (f.b - base.b) * k);
+            base.ww = (short)(base.ww + (f.ww - base.ww) * k);
+            base.cw = (short)(base.cw + (f.cw - base.cw) * k);
+        }
         if (printerConfig.progressFx)
         {
             ledSetProgressTarget(printerConfig.finishColor);
@@ -1213,15 +1265,44 @@ void ledsloop()
         updateleds();
     }
 
-    // Filament preview ends after 30 s
+    // Settings-page preview: apply when started, restore the real state when it ends
     static bool previewWasOn = false;
-    bool previewOn = (int32_t)(printerVariables.filamentPreviewUntil - millis()) > 0;
-    if (previewWasOn && !previewOn)
+    if (previewStarted)
+    {
+        previewStarted = false;
+        previewWasOn = true;
+        updateleds();
+    }
+    else if (previewWasOn && !previewActive())
+    {
+        previewWasOn = false;
+        previewUntil = 0;
+        printerConfig.replicate_update = true;
+        printerConfig.maintMode_update = true;
+        printerConfig.discoMode_update = true;
+        printerConfig.testcolor_update = true;
+        printerVariables.finished = holdingFinish() && printerConfig.finishindication;
+        updateleds();
+    }
+
+    // Almost done: the remaining time changes without a state change, so re-check now and then
+    static unsigned long lastAlmostCheck = 0;
+    if (printerConfig.almostDoneEnabled && millis() - lastAlmostCheck > 10000)
+    {
+        lastAlmostCheck = millis();
+        if (almostDoneBlend() > 0.0f)
+            updateleds();
+    }
+
+    // Filament preview ends after 30 s
+    static bool filPreviewWasOn = false;
+    bool filPreviewOn = (int32_t)(printerVariables.filamentPreviewUntil - millis()) > 0;
+    if (filPreviewWasOn && !filPreviewOn)
     {
         printerConfig.replicate_update = true;
         updateleds();
     }
-    previewWasOn = previewOn;
+    filPreviewWasOn = filPreviewOn;
 
     // Need an trigger action to run updateleds() so lights turn off
     // There is no change in the printer STATE, just monitoring the timer and triggering when over a threshhold

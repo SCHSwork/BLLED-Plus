@@ -226,12 +226,18 @@
                 <h2>While printing</h2>
                 <label class="row">
                     <span class="txt"><b>Filament color</b><small>The strip gently pulses in the color of the filament being printed, and shows a newly loaded spool's color for 30 seconds. Black and white filament use your printing color.</small></span>
+                    <button type="button" class="ghost mini" data-preview="filament">Preview</button>
                     <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
                 </label>
                 <label class="row">
                     <span class="txt"><b>Progress glow</b><small>The strip shifts from the printing color (or filament color) to the finished color as the print advances.</small></span>
                     <input type="checkbox" class="tog" id="progressFx" name="progressFx">
                 </label>
+                <div class="row">
+                    <label for="almostDoneEnabled" class="txt"><b>Almost-done heads-up</b><small>In the last minutes, the strip shifts toward the finished color so you know to head over.</small></label>
+                    <span data-show-if="almostDoneEnabled"><input type="number" id="almostDoneMins" name="almostDoneMins" min="1" max="60" value="5" inputmode="numeric"> <span class="unit">min</span></span>
+                    <input type="checkbox" class="tog" id="almostDoneEnabled" name="almostDoneEnabled">
+                </div>
                 <label class="row">
                     <span class="txt"><b>Hold steady during timelapses</b><small>No pulsing while the printer records a timelapse, so the video doesn't flicker.</small></span>
                     <input type="checkbox" class="tog" id="timelapseSteady" name="timelapseSteady">
@@ -241,10 +247,12 @@
                 <h2>Before and after a print</h2>
                 <label class="row">
                     <span class="txt"><b>Heat-up glow</b><small>Shifts from blue to orange as the bed or nozzle heats, at the start of a print or when you set a temperature on the printer.</small></span>
+                    <button type="button" class="ghost mini" data-preview="heat">Preview</button>
                     <input type="checkbox" class="tog" id="heatGlowFx" name="heatGlowFx">
                 </label>
                 <label class="row">
                     <span class="txt"><b>Finish celebration</b><small>A quick rainbow sweep when a print completes, then the finished color.</small></span>
+                    <button type="button" class="ghost mini" data-preview="celebrate">Preview</button>
                     <input type="checkbox" class="tog" id="celebrateFx" name="celebrateFx">
                 </label>
             </div>
@@ -310,6 +318,7 @@
     <span>Color</span><input type="color" id="${rgb}" name="${rgb}" value="#000000" aria-label="${label} color">
     <span>Warm</span><input type="range" class="warm" id="${key}WW" name="${key}WW" min="0" max="255" value="0" aria-label="${label} warm white"><output></output>
     <span>Cool</span><input type="range" class="cool" id="${key}CW" name="${key}CW" min="0" max="255" value="0" aria-label="${label} cool white"><output></output>
+    <button type="button" class="ghost mini lamp-preview" style="grid-column:2/4">Preview on the strip</button>
   </div></div>`;
         }
         document.querySelectorAll('[data-lamps]').forEach(box => {
@@ -353,6 +362,39 @@
         form.addEventListener('input', e => {
             const row = e.target.closest('.lamp-row');
             if (row) refreshLamp(row);
+        });
+
+        // ---- Preview on the real strip (nothing is saved) ----
+        const PAUSE_KEYS = ['pause', 'firstlayer', 'nozzleclog'];
+        const ERROR_KEYS = ['filamentRunout', 'frontCover', 'nozzleTemp', 'bedTemp', 'hmsSerious', 'hmsFatal'];
+        const fxOf = name => { const r = form.querySelector(`input[name="${name}"]:checked`); return r ? r.value : '0'; };
+        async function preview(params, btn) {
+            const old = btn.textContent;
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-BLLED': '1' },
+                    body: new URLSearchParams(params)
+                });
+                if (!r.ok) throw new Error((await r.text()) || r.status);
+                btn.textContent = btn.dataset.preview ? 'Showing' : 'Showing on the strip';
+                setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+            } catch (e) {
+                btn.disabled = false;
+                toast('Couldn\u2019t preview: ' + e.message, true);
+            }
+        }
+        document.addEventListener('click', e => {
+            const b = e.target.closest('.lamp-preview, [data-preview]');
+            if (!b) return;
+            e.preventDefault();
+            if (b.dataset.preview) return preview({ special: b.dataset.preview }, b);
+            const row = b.closest('.lamp-row');
+            const key = row.dataset.key;
+            const [color, ww, cw] = row.querySelectorAll('.lamp-edit input');
+            const fx = key === 'finish' ? fxOf('finishFx') : PAUSE_KEYS.includes(key) ? fxOf('pauseFx') : ERROR_KEYS.includes(key) ? fxOf('errorFx') : '0';
+            preview({ rgb: color.value, ww: ww.value, cw: cw.value, fx }, b);
         });
 
         // ---- Effect pickers ----
@@ -440,7 +482,8 @@
                     errorDetection: c.errordetection, progressFx: c.progressFx,
                     filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,
                     timelapseSteady: c.timelapseSteady !== false, heatGlowFx: c.heatGlowFx, celebrateFx: c.celebrateFx,
-                    coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight
+                    coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight,
+                    almostDoneEnabled: c.almostDoneEnabled
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 
@@ -457,6 +500,7 @@
                 $('hmsIgnoreList').value = c.hmsIgnoreList || '';
                 $('fadeMs').value = num(c.fadeMs, 600);
                 $('coolDownTemp').value = num(c.coolDownTemp, 35);
+                $('almostDoneMins').value = num(c.almostDoneMins, 5);
                 $('quietStart').value = c.quietStart || '23:00';
                 $('quietEnd').value = c.quietEnd || '07:00';
                 $('quietBrightness').value = num(c.quietBrightness, 10);
@@ -515,7 +559,7 @@
                 if (d.gcodeState === 'RUNNING' && d.percent >= 0) state += ' ' + d.percent + '%';
             }
             $('stripState').textContent = state;
-            $('stripFx').textContent = (d.workLight ? 'Work light' : '') || (d.coolWaiting ? 'Cooling ' + Math.round(d.bedTemp) + '°' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
+            $('stripFx').textContent = (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.workLight ? 'Work light' : '') || (d.coolWaiting ? 'Cooling ' + Math.round(d.bedTemp) + '°' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');

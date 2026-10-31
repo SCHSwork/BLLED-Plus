@@ -200,6 +200,8 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["coolDownEnabled"] = printerConfig.coolDownEnabled;
     doc["coolDownTemp"] = printerConfig.coolDownTemp;
     doc["doorWorkLight"] = printerConfig.doorWorkLight;
+    doc["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
+    doc["almostDoneMins"] = printerConfig.almostDoneMins;
     // Quiet hours (times as HH:MM for <input type=time>)
     char hm[16];
     doc["quietEnabled"] = printerConfig.quietEnabled;
@@ -356,6 +358,8 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.coolDownEnabled = request->hasParam("coolDownEnabled", true);
     printerConfig.coolDownTemp = constrain(getSafeParamInt(request, "coolDownTemp", printerConfig.coolDownTemp), 20, 80);
     printerConfig.doorWorkLight = request->hasParam("doorWorkLight", true);
+    printerConfig.almostDoneEnabled = request->hasParam("almostDoneEnabled", true);
+    printerConfig.almostDoneMins = constrain(getSafeParamInt(request, "almostDoneMins", printerConfig.almostDoneMins), 1, 60);
     // Quiet hours
     auto parseHM = [](const String &s, int fallback) -> int {
         int colon = s.indexOf(':');
@@ -535,6 +539,8 @@ void fillStatusJson(JsonDocument &doc)
     doc["coolWaiting"] = printerVariables.coolWaiting;
     doc["timelapse"] = printerVariables.timelapse;
     doc["workLight"] = (bool)workLightOn;
+    doc["preview"] = previewActive();
+    doc["almostDone"] = almostDoneBlend() > 0.0f;
     if (clockSynced())
     {
         time_t now = time(nullptr);
@@ -668,6 +674,43 @@ void handleQuick(AsyncWebServerRequest *request)
     printerConfig.discoMode_update = true;
     printerConfig.testcolor_update = true;
     requestLedUpdate();
+    request->send(200, "text/plain", "OK");
+}
+
+// Preview a color + effect on the strip from the settings page (nothing is saved)
+void handlePreview(AsyncWebServerRequest *request)
+{
+    if (!isAuthorized(request))
+        return request->requestAuthentication();
+    if (!fromOwnPage(request))
+        return refuseForeign(request);
+    auto param = [&](const char *n, const char *d) -> String {
+        return request->hasParam(n, true) ? request->getParam(n, true)->value() : String(d);
+    };
+    COLOR c;
+    String what = param("special", "");
+    if (what == "filament")
+    {
+        // The real active spool's color, or a sample purple when none is loaded
+        if (!filamentLedColor(c))
+            c = hex2rgb("#7A1FD1");
+        startPreview(c, FX_PULSE, 10000, false);
+    }
+    else if (what == "celebrate")
+    {
+        startPreview(printerConfig.finishColor, printerConfig.finishFx, 8000, true);
+    }
+    else if (what == "heat")
+    {
+        // Mid-way heat-up color
+        startPreview(hex2rgb("#B87590"), FX_SOLID, 6000, false);
+    }
+    else
+    {
+        c = hex2rgb(param("rgb", "#000000"), constrain((int)param("ww", "0").toInt(), 0, 255), constrain((int)param("cw", "0").toInt(), 0, 255));
+        int fx = constrain((int)param("fx", "0").toInt(), 0, 5);
+        startPreview(c, (uint8_t)fx, 10000, false);
+    }
     request->send(200, "text/plain", "OK");
 }
 
@@ -863,6 +906,7 @@ void setupWebserver()
     webServer.on("/api/status", HTTP_GET, handleApiStatus);
     webServer.on("/api/useDiscoveredSerial", HTTP_POST, handleUseDiscoveredSerial);
     webServer.on("/api/quick", HTTP_POST, handleQuick);
+    webServer.on("/api/preview", HTTP_POST, handlePreview);
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);

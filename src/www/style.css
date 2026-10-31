@@ -573,3 +573,5 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .row input[type="time"] { font-size: 14px; padding: 7px 6px; }
+.mini { width: auto; min-width: 78px; margin: 0; padding: 6px 12px; font-size: 13px; flex: none; }
+.lamp-edit .mini { justify-self: start; }

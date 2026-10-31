@@ -137,6 +137,8 @@ void saveFileSystem()
     json["coolDownEnabled"] = printerConfig.coolDownEnabled;
     json["coolDownTemp"] = printerConfig.coolDownTemp;
     json["doorWorkLight"] = printerConfig.doorWorkLight;
+    json["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
+    json["almostDoneMins"] = printerConfig.almostDoneMins;
     // Quiet hours
     json["quietEnabled"] = printerConfig.quietEnabled;
     json["quietStart"] = printerConfig.quietStart;
@@ -260,6 +262,8 @@ void loadFileSystem()
         printerConfig.coolDownEnabled = json["coolDownEnabled"] | false;
         printerConfig.coolDownTemp = constrain((int)(json["coolDownTemp"] | 35), 20, 80);
         printerConfig.doorWorkLight = json["doorWorkLight"] | false;
+        printerConfig.almostDoneEnabled = json["almostDoneEnabled"] | false;
+        printerConfig.almostDoneMins = constrain((int)(json["almostDoneMins"] | 5), 1, 60);
         // Quiet hours
         printerConfig.quietEnabled = json["quietEnabled"] | false;
         printerConfig.quietStart = constrain((int)(json["quietStart"] | 23 * 60), 0, 1439);

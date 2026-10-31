@@ -20,7 +20,7 @@
         <div class="form-container">
             <form enctype="multipart/form-data" id="upload_form" method="post">
                 <label for="file1">Select .bin.ota File</label>
-                <input accept='.bin.ota' id="file1" name='firmware' type="file">
+                <input accept=".ota,.bin,application/octet-stream" id="file1" name='firmware' type="file">
                 <progress id="progressBar" max="100" value="0"></progress>
                 <button id="button-send" type="submit" disabled>Update Firmware</button>
 

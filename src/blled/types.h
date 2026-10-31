@@ -165,6 +165,8 @@ extern "C"
         bool coolDownEnabled = false;   // Hold the finish color until the bed is cool enough to remove the part
         int coolDownTemp = 35;          // deg C
         bool doorWorkLight = false;     // Bright white while the door is open
+        bool almostDoneEnabled = false; // Shift toward the finish color in the last minutes of a print
+        int almostDoneMins = 5;
 
         // Quiet hours: dim (or turn off) the strip during a nightly window
         bool quietEnabled = false;
