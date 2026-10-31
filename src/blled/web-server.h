@@ -194,6 +194,12 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["finishFx"] = printerConfig.finishFx;
     doc["progressFx"] = printerConfig.progressFx;
     doc["filamentColorFx"] = printerConfig.filamentColorFx;
+    doc["timelapseSteady"] = printerConfig.timelapseSteady;
+    doc["heatGlowFx"] = printerConfig.heatGlowFx;
+    doc["celebrateFx"] = printerConfig.celebrateFx;
+    doc["coolDownEnabled"] = printerConfig.coolDownEnabled;
+    doc["coolDownTemp"] = printerConfig.coolDownTemp;
+    doc["doorWorkLight"] = printerConfig.doorWorkLight;
     // Quiet hours (times as HH:MM for <input type=time>)
     char hm[16];
     doc["quietEnabled"] = printerConfig.quietEnabled;
@@ -344,6 +350,12 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.finishFx = constrain(getSafeParamInt(request, "finishFx", printerConfig.finishFx), 0, 2);
     printerConfig.progressFx = request->hasParam("progressFx", true);
     printerConfig.filamentColorFx = request->hasParam("filamentColorFx", true);
+    printerConfig.timelapseSteady = request->hasParam("timelapseSteady", true);
+    printerConfig.heatGlowFx = request->hasParam("heatGlowFx", true);
+    printerConfig.celebrateFx = request->hasParam("celebrateFx", true);
+    printerConfig.coolDownEnabled = request->hasParam("coolDownEnabled", true);
+    printerConfig.coolDownTemp = constrain(getSafeParamInt(request, "coolDownTemp", printerConfig.coolDownTemp), 20, 80);
+    printerConfig.doorWorkLight = request->hasParam("doorWorkLight", true);
     // Quiet hours
     auto parseHM = [](const String &s, int fallback) -> int {
         int colon = s.indexOf(':');
@@ -520,6 +532,9 @@ void fillStatusJson(JsonDocument &doc)
     doc["brightness"] = printerConfig.brightness;
     doc["filamentColor"] = activeFilamentHex();
     doc["quietActive"] = (bool)quietNow;
+    doc["coolWaiting"] = printerVariables.coolWaiting;
+    doc["timelapse"] = printerVariables.timelapse;
+    doc["workLight"] = (bool)workLightOn;
     if (clockSynced())
     {
         time_t now = time(nullptr);

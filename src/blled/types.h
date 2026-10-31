@@ -59,6 +59,11 @@ extern "C"
         char extColor[7] = "";
         int trayNow = 255;                // active slot: 0-15 AMS, 254 external spool, 255 none
 
+        bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
+        bool coolWaiting = false;         // print finished, holding the finish color until the bed cools
+        unsigned long coolStartMs = 0;
+        bool celebratePending = false;    // play the finish celebration once per finished print
+
         // Connection health
         bool mqttAuthFailed = false;      // printer refused the access code
         unsigned long lastMqttMsgMs = 0;  // last message of any kind from the printer
@@ -153,6 +158,12 @@ extern "C"
         uint8_t finishFx = 1;           // Print finished: breathe
         bool progressFx = false;        // While printing, blend running color -> finish color by %
         bool filamentColorFx = false;   // While printing, glow in the active filament's color
+        bool timelapseSteady = true;    // No pulsing while a timelapse is recording (it would flicker)
+        bool heatGlowFx = false;        // While heating, blend blue -> orange with temperature
+        bool celebrateFx = false;       // Short rainbow sweep when a print finishes
+        bool coolDownEnabled = false;   // Hold the finish color until the bed is cool enough to remove the part
+        int coolDownTemp = 35;          // deg C
+        bool doorWorkLight = false;     // Bright white while the door is open
 
         // Quiet hours: dim (or turn off) the strip during a nightly window
         bool quietEnabled = false;

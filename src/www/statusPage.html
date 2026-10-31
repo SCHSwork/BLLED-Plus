@@ -157,6 +157,7 @@
             else if (idle && d.gcodeState === 'FAILED') name = 'Cancelled';
             else if (d.gcodeState === 'PAUSE' && d.stg_cur === 0) name = 'Paused';
             else if (d.stg_cur === 0 && d.gcodeState !== 'RUNNING') name = d.gcodeState === 'FINISH' ? 'Finished' : 'Idle';
+            if (d.coolWaiting) name = 'Finished, cooling to remove (' + Math.round(d.bedTemp) + '°)';
             if (!d.printerConnection) name = d.mqttAuthFailed ? 'The printer refused the access code' : 'Printer offline';
             set('stateName', name);
 
@@ -164,7 +165,7 @@
             const rainbow = d.ledFx === 'rainbow';
             $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow', 'pulse'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
-            set('stateFx', (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
+            set('stateFx', (d.workLight ? 'Work light' : '') || (d.timelapse && d.gcodeState === 'RUNNING' ? 'Timelapse' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');

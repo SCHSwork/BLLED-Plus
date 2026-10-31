@@ -85,6 +85,7 @@ static uint32_t ledFadeMs = 0;
 static uint8_t ledFx = FX_SOLID;
 static uint8_t ledNextFx = FX_SOLID;         // applied by the next tweenToColor()
 static TaskHandle_t ledTaskHandle = NULL;
+static volatile uint32_t celebrateUntil = 0; // finish celebration: fast rainbow until this time
 
 // Requests from other tasks (MQTT, web) - handled in ledsloop() on the main task
 volatile bool ledUpdateRequested = false;
@@ -134,8 +135,12 @@ bool computeQuiet()
     return (s < e) ? (m >= s && m < e) : (m >= s || m < e); // window may cross midnight
 }
 
+volatile bool workLightOn = false; // door work light showing: full brightness
+
 int effectiveBrightness()
 {
+    if (workLightOn)
+        return 100;
     if (quietNow && !printerConfig.maintMode)
         return min(printerConfig.brightness, printerConfig.quietBrightness);
     return printerConfig.brightness;
@@ -380,6 +385,20 @@ static void ledRenderFrame()
         break;
     }
 
+    // Finish celebration: a fast rainbow sweep, blending into the finish color over the last 0.6 s
+    uint32_t cu = celebrateUntil;
+    if (cu && (int32_t)(cu - now) > 0)
+    {
+        float w = min(1.0f, (float)(cu - now) / 600.0f);
+        float v = toPerceptual((int)(255 * effectiveBrightness() / 100.0f));
+        float rgb[3];
+        hsvToPerceptual((float)(now % 1200) * 360.0f / 1200.0f, 1.0f, v, rgb);
+        for (int i = 0; i < 3; i++)
+            out[i] = rgb[i] * w + out[i] * (1.0f - w);
+        out[3] *= (1.0f - w);
+        out[4] *= (1.0f - w);
+    }
+
     portENTER_CRITICAL(&ledMux);
     memcpy(ledOut, out, sizeof(ledOut));
     portEXIT_CRITICAL(&ledMux);
@@ -493,6 +512,46 @@ void printLogs(String Desc, short r, short g, short b, short ww, short cw)
     printLogs(Desc, tempColor);
 }
 
+// Is the finished-print color being held (until the door is used, a timer runs out, or the bed cools)?
+bool holdingFinish()
+{
+    return (printerConfig.finishExit && printerVariables.waitingForDoor) ||
+           (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < (unsigned long)printerConfig.finishTimeOut)) ||
+           printerVariables.coolWaiting;
+}
+
+// Heat-up glow: cool blue -> warm orange as the bed and nozzle approach their targets
+COLOR heatGlowColor()
+{
+    float sum = 0;
+    int n = 0;
+    if (printerVariables.bedTarget > 30)
+    {
+        sum += constrain((printerVariables.bedTemp - 25.0f) / (printerVariables.bedTarget - 25.0f), 0.0f, 1.0f);
+        n++;
+    }
+    if (printerVariables.nozzleTarget > 30)
+    {
+        sum += constrain((printerVariables.nozzleTemp - 25.0f) / (printerVariables.nozzleTarget - 25.0f), 0.0f, 1.0f);
+        n++;
+    }
+    float p = n ? sum / n : 0.0f;
+    COLOR c;
+    // #2F6BFF (cool) -> #FF7A1A (hot)
+    c.r = (short)(0x2F + (0xFF - 0x2F) * p);
+    c.g = (short)(0x6B + (0x7A - 0x6B) * p);
+    c.b = (short)(0xFF + (0x1A - 0xFF) * p);
+    c.ww = 0;
+    c.cw = 0;
+    snprintf(c.RGBhex, sizeof(c.RGBhex), "#%02X%02X%02X", c.r, c.g, c.b);
+    return c;
+}
+
+bool isLidarStage(int st)
+{
+    return st == 1 || st == 8 || st == 9 || st == 10 || st == 12 || st == 14;
+}
+
 // Shorthand: show a color with an effect
 static void showFx(uint8_t fx, const COLOR &c)
 {
@@ -586,6 +645,24 @@ void updateleds()
     {
         // Skip trying to set a color as it's in one of the override states
         return;
+    }
+
+    // Door work light: bright white while the door is open (not while the lidar needs darkness)
+    bool wantWorkLight = printerConfig.doorWorkLight && printerVariables.doorOpen && !isLidarStage(printerVariables.stage) && printerVariables.online;
+    if (wantWorkLight)
+    {
+        workLightOn = true;
+        tweenToColor(0, 0, 0, 255, 255, 300); // quick, it's a light switch
+        printLogs("Door open - work light", 0, 0, 0, 255, 255);
+        return;
+    }
+    if (workLightOn)
+    {
+        workLightOn = false;
+        // Fall through: whatever the printer state calls for is applied below
+        printerConfig.replicate_update = true;
+        if (holdingFinish() && printerConfig.finishindication)
+            printerVariables.finished = true; // re-show the finish color after the door closes
     }
 
     // TOGGLE LIGHTS via DOOR
@@ -798,7 +875,7 @@ void updateleds()
     }
 
     // Idle Timeout (Has to be enabled)
-    if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !((printerConfig.finishExit && printerVariables.waitingForDoor) || (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < printerConfig.finishTimeOut))) && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerConfig.isIdleOFFActive == false && printerConfig.inactivityEnabled)
+    if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerConfig.isIdleOFFActive == false && printerConfig.inactivityEnabled)
     {
         tweenToColor(0, 0, 0, 0, 0, 2000); // OFF, slow fade
         controlChamberLight(false);        // Turn off chamber light via MQTT
@@ -811,6 +888,15 @@ void updateleds()
     }
 
     // ON -- ON -- ON -- ON
+
+    // Heat-up glow while the bed (2) or hotend (7) heats
+    if (printerConfig.heatGlowFx && (printerVariables.stage == 2 || printerVariables.stage == 7))
+    {
+        COLOR c = heatGlowColor();
+        tweenToColor(c, 1500);
+        printLogs("Heating - heat-up glow", c);
+        return;
+    }
 
     // Preheating Bed
     if (printerVariables.stage == 2)
@@ -832,7 +918,10 @@ void updateleds()
         }
         else if (useFilament)
         {
-            ledSetNextFx(FX_PULSE); // filament color gently pulses instead of sitting solid
+            // Filament color gently pulses instead of sitting solid - but holds steady while a
+            // timelapse records, or the brightness changes would flicker between frames
+            if (!(printerConfig.timelapseSteady && printerVariables.timelapse))
+                ledSetNextFx(FX_PULSE);
             tweenToColor(base, 1500); // slower fade so a filament swap reads as a color change
         }
         else
@@ -844,7 +933,7 @@ void updateleds()
     }
 
     // for IDLE - P1 uses 255, X1 uses -1
-    if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !((printerConfig.finishExit && printerVariables.waitingForDoor) || (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < printerConfig.finishTimeOut))) && (millis() - printerConfig.inactivityStartms < printerConfig.inactivityTimeOut))
+    if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() && (millis() - printerConfig.inactivityStartms < printerConfig.inactivityTimeOut))
     {
         tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
         printLogs("Stage -1/255, IDLE", printerConfig.runningColor);
@@ -888,6 +977,11 @@ void updateleds()
     // Sets to green when print finishes AND user wants Finish Indication enabled
     if (printerVariables.finished == true && printerConfig.finishindication == true)
     {
+        if (printerConfig.celebrateFx && printerVariables.celebratePending)
+        {
+            printerVariables.celebratePending = false;
+            celebrateUntil = millis() + 3000;
+        }
         showFx(printerConfig.finishFx, printerConfig.finishColor);
         printLogs("Finished print", printerConfig.finishColor);
         printerVariables.finished = false;
@@ -895,7 +989,7 @@ void updateleds()
     }
 
     // replicate printer behaviour ON
-    if (printerConfig.replicatestate && printerConfig.replicate_update && printerVariables.printerledstate && !((printerConfig.finishExit && printerVariables.waitingForDoor) || (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < printerConfig.finishTimeOut))))
+    if (printerConfig.replicatestate && printerConfig.replicate_update && printerVariables.printerledstate && !holdingFinish())
     {
         tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
         printLogs("LED Replication ON", printerConfig.runningColor);
@@ -993,7 +1087,7 @@ void ledsloop()
 
     // Turn off GREEN if... finished and Door OPENED or CLOSED in last 5 secs AND user wants Finish Indication enabled
     // Can't use Boolean finished as printer defaults back to IDLE via MQTT
-    if ((printerVariables.waitingForDoor && printerConfig.finishindication && printerConfig.finishExit && ((millis() - printerVariables.lastdoorClosems) < 6000 || (millis() - printerVariables.lastdoorOpenms) < 6000)))
+    if ((printerVariables.waitingForDoor && !printerVariables.coolWaiting && printerConfig.finishindication && printerConfig.finishExit && ((millis() - printerVariables.lastdoorClosems) < 6000 || (millis() - printerVariables.lastdoorOpenms) < 6000)))
     {
         if (printerConfig.debuging || printerConfig.debugingchange)
         {
@@ -1005,7 +1099,7 @@ void ledsloop()
         updateleds();
     }
 
-    if ((printerConfig.finish_check && printerConfig.finishindication && printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) > printerConfig.finishTimeOut)))
+    if ((printerConfig.finish_check && !printerVariables.coolWaiting && printerConfig.finishindication && printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) > printerConfig.finishTimeOut)))
     {
         if (printerConfig.debuging || printerConfig.debugingchange)
         {
@@ -1018,9 +1112,37 @@ void ledsloop()
         controlChamberLight(false); // Turn off chamber light via MQTT
     }
 
+    // Safe-to-remove: once the bed has cooled (or after an hour, in case readings stop), let go of
+    // the finish color - the strip changes to the normal color, meaning the part can come off.
+    if (printerVariables.coolWaiting)
+    {
+        bool cool = printerVariables.bedTemp > 0 && printerVariables.bedTemp < printerConfig.coolDownTemp;
+        bool tooLong = millis() - printerVariables.coolStartMs > 3600000UL;
+        if (cool || tooLong || !printerConfig.coolDownEnabled)
+        {
+            printerVariables.coolWaiting = false;
+            printerVariables.waitingForDoor = false;
+            printerConfig.finish_check = false;
+            printerVariables.finished = false;
+            printerConfig.inactivityStartms = millis();
+            printerConfig.isIdleOFFActive = false;
+            printerConfig.replicate_update = true;
+            LogSerial.printf("[LED] Bed at %.0f C - safe to remove the part\n", printerVariables.bedTemp);
+            updateleds();
+        }
+    }
+
+    // Heat-up glow follows the temperatures, which change without any state change
+    static unsigned long lastHeatRefresh = 0;
+    if (printerConfig.heatGlowFx && (printerVariables.stage == 2 || printerVariables.stage == 7) && millis() - lastHeatRefresh > 2000)
+    {
+        lastHeatRefresh = millis();
+        updateleds();
+    }
+
     // Need an trigger action to run updateleds() so lights turn off
     // There is no change in the printer STATE, just monitoring the timer and triggering when over a threshhold
-    if (printerConfig.inactivityEnabled && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerVariables.finished == false && printerConfig.isIdleOFFActive == false)
+    if (printerConfig.inactivityEnabled && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerVariables.finished == false && !printerVariables.coolWaiting && printerConfig.isIdleOFFActive == false)
     {
         // Opening or Closing the Door will turn LEDs back on and restart the timer.
         updateleds();

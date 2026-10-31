@@ -131,6 +131,12 @@ void saveFileSystem()
     json["finishFx"] = printerConfig.finishFx;
     json["progressFx"] = printerConfig.progressFx;
     json["filamentColorFx"] = printerConfig.filamentColorFx;
+    json["timelapseSteady"] = printerConfig.timelapseSteady;
+    json["heatGlowFx"] = printerConfig.heatGlowFx;
+    json["celebrateFx"] = printerConfig.celebrateFx;
+    json["coolDownEnabled"] = printerConfig.coolDownEnabled;
+    json["coolDownTemp"] = printerConfig.coolDownTemp;
+    json["doorWorkLight"] = printerConfig.doorWorkLight;
     // Quiet hours
     json["quietEnabled"] = printerConfig.quietEnabled;
     json["quietStart"] = printerConfig.quietStart;
@@ -248,6 +254,12 @@ void loadFileSystem()
         printerConfig.finishFx = constrain((int)(json["finishFx"] | 1), 0, 2);
         printerConfig.progressFx = json["progressFx"] | false;
         printerConfig.filamentColorFx = json["filamentColorFx"] | false;
+        printerConfig.timelapseSteady = json["timelapseSteady"] | true;
+        printerConfig.heatGlowFx = json["heatGlowFx"] | false;
+        printerConfig.celebrateFx = json["celebrateFx"] | false;
+        printerConfig.coolDownEnabled = json["coolDownEnabled"] | false;
+        printerConfig.coolDownTemp = constrain((int)(json["coolDownTemp"] | 35), 20, 80);
+        printerConfig.doorWorkLight = json["doorWorkLight"] | false;
         // Quiet hours
         printerConfig.quietEnabled = json["quietEnabled"] | false;
         printerConfig.quietStart = constrain((int)(json["quietStart"] | 23 * 60), 0, 1439);

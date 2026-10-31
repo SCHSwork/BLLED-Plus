@@ -281,6 +281,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["ams"]["ams"][0]["tray"][0]["id"] = true;
     filter["print"]["ams"]["ams"][0]["tray"][0]["tray_color"] = true;
     filter["print"]["vt_tray"]["tray_color"] = true;
+    filter["print"]["ipcam"]["timelapse"] = true;
     filter["system"]["command"] = true;
     filter["system"]["led_mode"] = true;
 
@@ -384,6 +385,9 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
                 }
             }
         }
+        if (!print["ipcam"]["timelapse"].isNull())
+            printerVariables.timelapse = (print["ipcam"]["timelapse"] == "enable");
+
         if (!print["vt_tray"].isNull())
             setHex(printerVariables.extColor, print["vt_tray"]["tray_color"] | "");
 
@@ -527,6 +531,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             if (mqttgcodeState == "RUNNING")
             {
                 printerVariables.overridestage = 999; // Reset after special HMS override
+                printerVariables.coolWaiting = false;  // a new print supersedes the last one's cool-down
             }
 
             if (mqttgcodeState == "FINISH")
@@ -535,6 +540,15 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
                 printerVariables.waitingForDoor = true;
                 printerConfig.finishStartms = millis();
                 printerConfig.finish_check = true;
+                printerVariables.celebratePending = true;
+                // Safe-to-remove: hold the finish color until the bed cools (only for a print
+                // that just ended here, not when the controller boots into a finished printer)
+                if (printerConfig.coolDownEnabled && printerConfig.finishindication && printerVariables.gcodeState == "RUNNING")
+                {
+                    printerVariables.coolWaiting = true;
+                    printerVariables.coolStartMs = millis();
+                    LogSerial.printf("[LED] Print finished - holding the finish color until the bed is below %d C\n", printerConfig.coolDownTemp);
+                }
             }
             printerVariables.gcodeState = mqttgcodeState;
 

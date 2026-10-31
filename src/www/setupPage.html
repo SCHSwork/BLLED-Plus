@@ -86,6 +86,11 @@
                         <input type="number" id="finishTimerMins" name="finishTimerMins" min="1" max="999" value="10" inputmode="numeric">
                         <span class="unit">min</span>
                     </div>
+                    <div class="row">
+                        <label for="coolDownEnabled" class="txt"><b>Wait until the bed cools to</b><small>Then the strip switches to your normal color: the part is ready to come off.</small></label>
+                        <span data-show-if="coolDownEnabled"><input type="number" id="coolDownTemp" name="coolDownTemp" min="20" max="80" value="35" inputmode="numeric"> <span class="unit">°C</span></span>
+                        <input type="checkbox" class="tog" id="coolDownEnabled" name="coolDownEnabled">
+                    </div>
                 </div>
             </div>
 
@@ -96,6 +101,10 @@
                     <span data-show-if="inactivityEnabled"><input type="number" id="inactivityMins" name="inactivityMins" min="1" max="999" value="30" inputmode="numeric"> <span class="unit">min</span></span>
                     <input type="checkbox" class="tog" id="inactivityEnabled" name="inactivityEnabled">
                 </div>
+                <label class="row">
+                    <span class="txt"><b>Work light when the door opens</b><small>Bright white while the door is open, then back to normal. Stays off while the lidar is scanning.</small></span>
+                    <input type="checkbox" class="tog" id="doorWorkLight" name="doorWorkLight">
+                </label>
                 <label class="row">
                     <span class="txt"><b>Control the chamber light too</b><small>Turns the printer's own light on with the door and off when idle.</small></span>
                     <input type="checkbox" class="tog" id="controlChamberLight" name="controlChamberLight">
@@ -222,6 +231,21 @@
                 <label class="row">
                     <span class="txt"><b>Progress glow</b><small>The strip shifts from the printing color (or filament color) to the finished color as the print advances.</small></span>
                     <input type="checkbox" class="tog" id="progressFx" name="progressFx">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>Hold steady during timelapses</b><small>No pulsing while the printer records a timelapse, so the video doesn't flicker.</small></span>
+                    <input type="checkbox" class="tog" id="timelapseSteady" name="timelapseSteady">
+                </label>
+            </div>
+            <div class="group">
+                <h2>Before and after a print</h2>
+                <label class="row">
+                    <span class="txt"><b>Heat-up glow</b><small>Shifts from blue to orange as the bed and nozzle reach temperature.</small></span>
+                    <input type="checkbox" class="tog" id="heatGlowFx" name="heatGlowFx">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>Finish celebration</b><small>A quick rainbow sweep when a print completes, then the finished color.</small></span>
+                    <input type="checkbox" class="tog" id="celebrateFx" name="celebrateFx">
                 </label>
             </div>
         </section>
@@ -414,7 +438,9 @@
                     inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging,
                     debugingchange: c.debugingchange, mqttdebug: c.mqttdebug, p1Printer: c.p1Printer, doorSwitch: c.doorSwitch,
                     errorDetection: c.errordetection, progressFx: c.progressFx,
-                    filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled
+                    filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,
+                    timelapseSteady: c.timelapseSteady !== false, heatGlowFx: c.heatGlowFx, celebrateFx: c.celebrateFx,
+                    coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 
@@ -430,6 +456,7 @@
                 $('inactivityMins').value = num(c.inactivityMins, 30);
                 $('hmsIgnoreList').value = c.hmsIgnoreList || '';
                 $('fadeMs').value = num(c.fadeMs, 600);
+                $('coolDownTemp').value = num(c.coolDownTemp, 35);
                 $('quietStart').value = c.quietStart || '23:00';
                 $('quietEnd').value = c.quietEnd || '07:00';
                 $('quietBrightness').value = num(c.quietBrightness, 10);
@@ -488,7 +515,7 @@
                 if (d.gcodeState === 'RUNNING' && d.percent >= 0) state += ' ' + d.percent + '%';
             }
             $('stripState').textContent = state;
-            $('stripFx').textContent = (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
+            $('stripFx').textContent = (d.workLight ? 'Work light' : '') || (d.coolWaiting ? 'Cooling ' + Math.round(d.bedTemp) + '°' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');
