@@ -8,11 +8,52 @@ Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It start
 
 ## Install
 
-1. Download the newest `BLLC_V*.bin.ota` from [Releases](../../releases).
-2. Open `http://blled.local/update` (or your controller's address followed by `/update`).
-3. Upload the file and wait about 30 seconds while the controller restarts. Your settings carry over.
+### Update a controller that's already set up
 
-To go back, upload an official BLLED firmware file the same way.
+Works from the official BLLED firmware or an older BLLED Plus. Your settings carry over.
+
+1. Download the newest `BLLC_V*.bin.ota` from [Releases](../../releases). On a phone, save it to your Downloads.
+2. On the same Wi-Fi as the controller, open **http://blled.local/update**.
+   If that doesn't load, use the controller's number instead (for example `http://192.168.1.42/update`). Your router's app lists it under connected devices.
+3. Choose the `.bin.ota` file and upload it. Don't unplug anything until it says it's done.
+4. Wait about 30 seconds for the restart, then open **http://blled.local/status**. The firmware version is at the bottom.
+
+**Going back:** upload an official BLLED firmware file the same way.
+
+### Set up a brand-new controller
+
+1. Flash the official firmware with the [BLLED web flasher](https://dutchdevelop.github.io/blledsetup/) (Chrome or Edge on a computer, controller plugged in over USB).
+2. On your phone, join the Wi-Fi hotspot **BLLED_AP**. The setup page should open by itself. If it doesn't, go to **http://192.168.4.1**.
+3. Choose your home Wi-Fi and enter its password.
+4. Enter your printer's details, all found on the printer's screen:
+   - **IP address** and **access code**: Settings, then WLAN / Network
+   - **Serial number**: Settings, then Device
+5. Save. The controller restarts and joins your Wi-Fi.
+6. Install BLLED Plus with the update steps above.
+
+### Settings
+
+- **http://blled.local/** - lights, colors, effects and everything else
+- **http://blled.local/status** - what the strip is doing, print progress, temperatures and connection health
+- **http://blled.local/backuprestore** - save your settings to a file and restore them
+
+Each setting has a **Preview** button that shows it on the real strip without saving.
+
+### Phones
+
+- If the page won't open in Chrome on Android, try Samsung Internet or Firefox. Some browsers force `https://`, and the controller only speaks `http://`.
+- Give the controller a fixed address in your router (often called *address reservation* or *DHCP reservation*), so a router restart never moves it.
+
+### Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| Strip blinks dim red | The printer refused the access code. Check it on the printer screen (it changes if LAN settings change) and update it under Wi-Fi and printer connection. |
+| Status page says the serial belongs to a different printer | Tap the button on the status page to use the printer that's actually at that address. |
+| "Connected, but the printer isn't sending anything" | The serial number is for a different printer. Re-enter it. |
+| Can't reach the controller | Try `http://blled.local`. Check that your phone is on the same Wi-Fi, not a guest network. Unplugging the controller for 10 seconds restarts it. |
+
+The log is at **http://blled.local/webserial** if you need to see what the controller is doing.
 
 ## What it does
 
@@ -48,78 +89,20 @@ To go back, upload an official BLLED firmware file the same way.
 |---|---|---|---|
 | ![Status](docs/screenshots/1-status.png) | ![Lights](docs/screenshots/3-lights.png) | ![Alerts](docs/screenshots/4-alerts.png) | ![Effects](docs/screenshots/5-effects.png) |
 
-## Building
+## Building from source
 
-The project builds with PlatformIO (`pio run`); `build-firmware.bat` does it on Windows and `tools/build-ota-linux.sh` builds the OTA file with arduino-cli on Linux.
+- **Windows:** install PlatformIO, then run `build-firmware.bat`. `flash-firmware.bat` flashes over USB.
+- **Linux:** `tools/build-ota-linux.sh <toolchain-dir>` builds the `.bin.ota` with arduino-cli.
+- The web pages in `src/www` are compressed into `.h` files by `pre_build.py` before every build. Those generated files aren't checked in.
+- BLLED Plus uses a larger firmware space (`min_spiffs.csv`). A controller on the original layout still takes the `.bin.ota` update. To move one to the larger layout over USB without losing settings, run `migrate-layout.bat` (it backs up the settings first).
 
 ---
 
-*The rest of this file is the original BLLEDController README.*
-
-### Flashing and Setup
-1. go to the [Web Flasher](https://dutchdevelop.github.io/blledsetup/) (Or [here](https://softwarecrash.github.io/BLLED-Flasher/) for Nightly and Dev builds)
-2. connect your ESP32
-3. Select the Firmware build you want
-4. Click on Flash
-5. Search and connect to a WiFi Hotspot called "BLLED-AP"
-6. Surf to http://192.168.4.1
-7. Select your WiFi and Enter passwort, Optional enter all the Printer informations
-8. enjoy :)
-
-![main setup_LED](https://github.com/user-attachments/assets/52778d28-98cd-496e-bfce-aca49cd4de89)
-![main_setup_printer](https://github.com/user-attachments/assets/1969e4bd-0887-4a0c-a965-8ec575e23396)
-![main_setup_error](https://github.com/user-attachments/assets/b026260c-5c33-4f5c-922a-fcc601cb9be1)
-![main_setup_debug](https://github.com/user-attachments/assets/6d5a6e48-b052-4305-99f5-5d9c906eb8c1)
-![main_setup_navigation](https://github.com/user-attachments/assets/78041d10-2edb-42e2-b600-6cde735d2d1f)
-![setup_wifi](https://github.com/user-attachments/assets/4ef7631c-38f9-4424-ad88-72a335286c27)
-![setup_wifi_printer](https://github.com/user-attachments/assets/da354544-710d-4e10-9dff-fc2cc1951857)
-![ota](https://github.com/user-attachments/assets/7f223361-f811-4ff4-b3fc-45b2a1222c07)
-![backup_restore](https://github.com/user-attachments/assets/b21899ba-c97f-48b6-8bc3-a87797029d14)
-![navigation](https://github.com/user-attachments/assets/027fe724-ffc6-453b-ba73-c82c1ddb012e)
-
-
-
-
-
-- Connects to Bambulab X1,X1C,P1P Or P1S
-- Controls LED strip based on printer state
-
-### Development Environment
-
-To contribute to the BL Led Controller project, you'll need the following tools:
-
-### Tools & Libraries Used
-
-- [Visual Studio Code](https://code.visualstudio.com/): A lightweight and powerful source code editor.
-- [PlatformIO](https://platformio.org/): An open-source ecosystem for IoT development.
-- [Python](https://www.python.org/): A programming language used for scripting and automation.
-- [qpdf](https://qpdf.sourceforge.io/): A command-line tool and library of compression tools (`gzip`)
-
-### Building and Running the Project
-1. Clone the repository to your local machine.
-2. Open the project folder in Visual Studio Code.
-3. Ensure that PlatformIO is installed and configured in your Visual Studio Code environment.
-4. Connect your BLLED device ESP32 to your computer.
-6. Build the project by clicking on the PlatformIO icon in the sidebar and selecting "Build" from the available options.
-7. Once the build process is complete, upload the firmware to your device using the "Upload" option in PlatformIO.
-8. After uploading the firmware, your BL Led Controller device should be ready to use.
-
-### Setup Instructions
-Once you have uploaded the firmware to your device, please visit the [dutchdevelop.com/bl-led-controller](https://dutchdevelop.com/bl-led-controller) website for detailed setup instructions.
-
-
-### Development Notes
-
-#### Generating .h Files for Compressed HTML
-
-In embedded applications, HTML content is efficiently stored in PROGMEM memory. To achieve this, .h files are generated from compressed HTML files for webpages (i.e., `src/www/setuppage.html`) that are run on the device.
-
-- The `compress_html.py` is used to compress HTML files and generate corresponding .h files and is integrated into the build process and executed as a pre-build step in `platform.ini`
-- The generated .h files should not be checked into git (see `.gitignore`)
+## License and credits
 
 ### License
 
-The BL Led Controller is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) license. See the [LICENSE](https://github.com/DutchDevelop/BLLEDController/blob/main/LICENSE) file for more details.
+BLLED Plus, like the original BL Led Controller, is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) license. See [LICENSE](LICENSE). Free to share and change for non-commercial use, with credit, under the same license.
 
 ### Credits
 - **[DutchDeveloper](https://dutchdevelop.com/)**: Lead programmer
