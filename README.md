@@ -105,14 +105,13 @@ The log is at **http://blled.local/webserial** if you need to see what the contr
 BLLED Plus, like the original BL Led Controller, is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) license. See [LICENSE](LICENSE). Free to share and change for non-commercial use, with credit, under the same license.
 
 ### Credits
-- **[DutchDeveloper](https://dutchdevelop.com/)**: Lead programmer
-- **[Modbot](https://github.com/Modbot)**: Tester for X1C, P1P & P1S
-- **[xps3riments](https://github.com/xps3riments)**: Inspiration for the foundation of the code
-- **[longrackslabs](https://github.com/longrackslabs)**: Build process, documentation, developer & community support
-- **[SoftWareCrash](https://github.com/softwarecrash)**: Any small unimportant changes
 
-### Author
+**BLLED Plus**
+- **[Lincoln (SCHSwork)](https://github.com/SCHSwork)**: creator of BLLED Plus. New lighting features, web interface, phone app, connection fixes and testing on the X1C.
 
-BLLED Plus changes by Lincoln (SCHSwork). Original project:
-
-This project was created by [DutchDeveloper](https://dutchdevelop.com/).
+**Original BLLEDController**, which BLLED Plus is built on
+- **[DutchDeveloper](https://dutchdevelop.com/)**: creator and lead programmer
+- **[Modbot](https://github.com/Modbot)**: tester for X1C, P1P & P1S
+- **[xps3riments](https://github.com/xps3riments)**: inspiration for the foundation of the code
+- **[longrackslabs](https://github.com/longrackslabs)**: build process, documentation, developer & community support
+- **[SoftWareCrash](https://github.com/softwarecrash)**: smaller changes
