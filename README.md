@@ -1,31 +1,60 @@
-## BL Led Controller
+# BLLED Plus
 
-The BL Led Controller is an ESP32 based device that connects to your Bambulab X1,X1C,P1P Or P1S and controls the LED strip based on the state of the printer.
+Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It started as a fork of [DutchDevelop's BLLEDController](https://github.com/DutchDevelop/BLLEDController) 2.3.0 and adds smarter lighting, a new web interface and a more stable connection. Tested on an X1C.
 
-> **Unofficial fork (2.4.0)** of DutchDevelop's BLLEDController 2.3.0, released under the same CC BY-NC-SA 4.0 license. Not made or endorsed by DutchDevelop or Bambu Lab. Changes are listed below.
+> Not made or endorsed by DutchDevelop or Bambu Lab. Same license as the original (CC BY-NC-SA 4.0): free for personal use, not for sale.
 
-### What's new in 2.4.0
+![BLLED Plus 2.5](docs/screenshots/BLLED-Plus-2.5.png)
 
-**Connection stability**
-- LED changes no longer block the MQTT task. The old fade ran ~500 ms of `delay()` inside the MQTT callback, so every color change stalled the connection the printer expects to be serviced.
-- MQTT reconnects back off 2 s → 60 s instead of retrying every 3 s; a refused access code waits 60 s and the strip blinks dim red until it's fixed.
-- A watchdog rebuilds a connection that has gone silent for 2 minutes.
-- After every reconnect the controller asks the printer for a full status report (`pushall`), so the LEDs are correct immediately.
-- Only the MQTT task touches the MQTT client (PubSubClient isn't thread-safe); chamber-light commands from other tasks are queued.
-- Wi-Fi power-save is off (it causes latency spikes that get MQTT clients dropped). Wi-Fi recovery retries every 10 s and rescans for the strongest access point after about a minute, instead of reconnecting on every loop pass.
-- Fixed: the setup hotspot's captive-portal DNS was never serviced.
+## Install
 
-**LED effects**
-- Real cross-fades (the old fade's integer math rounded every step to 0, so it waited and then jumped), on 12-bit PWM with gamma-correct easing. Steady colors land on exactly the same PWM level as before, so existing color and brightness settings look the same.
-- Effects per state: solid, breathe or blink for pause/first-layer/clog, errors and finish (defaults: breathe, blink, breathe).
-- Optional progress glow: while printing, the running color blends toward the finish color as the print advances.
-- RGB cycle mode now respects brightness and no longer writes negative PWM values.
-- All of this is under **Settings → Effects**, with an adjustable fade time.
+1. Download the newest `BLLC_V*.bin.ota` from [Releases](../../releases).
+2. Open `http://blled.local/update` (or your controller's address followed by `/update`).
+3. Upload the file and wait about 30 seconds while the controller restarts. Your settings carry over.
 
-**Web UI**
-- New **Live Status** page at `/status`: what the strip is showing, print progress, layer, time left, temperatures, connection health (signal, reconnects, Wi-Fi drops, last message), door and chamber light.
-- New `GET /api/status` JSON endpoint with the same data (uses the WebUI login if one is set), handy for Home Assistant REST sensors or phone shortcuts.
-- HMS ignore list accepts codes with or without the `HMS_` prefix, in any case.
+To go back, upload an official BLLED firmware file the same way.
+
+## What it does
+
+**While printing**
+- **Filament color**: pulses in the incoming spool's color during AMS swaps and loading; while printing it stays your normal color with a short filament-color swell about once a minute.
+- **First-layer spotlight**: full-brightness white for layer 1. Every lidar step (bed scan, extrusion calibration, first-layer inspection) keeps its own dark setting.
+- **Almost-done heads-up**: shifts toward the finished color in the last minutes.
+- **Progress glow** (optional) and **hold steady during timelapses**.
+
+**Before and after**
+- **Heat-up glow**: blue, purple, red, orange as the bed or nozzle heats, at print start or from the printer screen.
+- **Safe to remove**: holds the finished color until the bed has cooled.
+- **Finish celebration**: a short rainbow when a print ends.
+
+**Problems, each with its own color**
+- Waiting for you (amber, breathing): the print paused on its own. Pauses you make keep the pause color.
+- First layer or spaghetti (pink), nozzle clog (yellow), AMS problem (purple), filament runout and faults (red).
+
+**Around the house**
+- **Door work light**, and lights the door turned on go back off when it closes.
+- **Dims when idle** before turning off, and **quiet hours** at night.
+- **Printer light sync**: the chamber light follows the strip outside prints.
+- **Preview** any color or effect on the real strip before saving.
+
+**Web interface and connection**
+- New settings and status pages: print progress, time left, "done around", temperatures, connection health and the controller's address.
+- Non-blocking LEDs, MQTT back-off and watchdog, Wi-Fi recovery, and a settings-page self-check that restarts a frozen web server (never mid-print).
+- The controller shows up as "BLLED" in your router and at `blled.local`.
+
+## Screenshots
+
+| Status | Lights | Alerts | Effects |
+|---|---|---|---|
+| ![Status](docs/screenshots/1-status.png) | ![Lights](docs/screenshots/3-lights.png) | ![Alerts](docs/screenshots/4-alerts.png) | ![Effects](docs/screenshots/5-effects.png) |
+
+## Building
+
+The project builds with PlatformIO (`pio run`); `build-firmware.bat` does it on Windows and `tools/build-ota-linux.sh` builds the OTA file with arduino-cli on Linux.
+
+---
+
+*The rest of this file is the original BLLEDController README.*
 
 ### Flashing and Setup
 1. go to the [Web Flasher](https://dutchdevelop.github.io/blledsetup/) (Or [here](https://softwarecrash.github.io/BLLED-Flasher/) for Nightly and Dev builds)
@@ -100,5 +129,7 @@ The BL Led Controller is released under Creative Commons Attribution-NonCommerci
 - **[SoftWareCrash](https://github.com/softwarecrash)**: Any small unimportant changes
 
 ### Author
+
+BLLED Plus changes by Lincoln (SCHSwork). Original project:
 
 This project was created by [DutchDeveloper](https://dutchdevelop.com/).

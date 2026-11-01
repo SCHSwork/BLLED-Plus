@@ -6,7 +6,8 @@ set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
 set "PIO=%USERPROFILE%\.platformio\penv\Scripts\pio.exe"
 set "PY=%USERPROFILE%\.platformio\penv\Scripts\python.exe"
-set "IP=192.168.68.53"
+set "IP=blled.local"
+if not "%~1"=="" set "IP=%~1"
 echo === MIGRATE START %DATE% %TIME% === > migrate.log
 
 echo Step 1 of 3: backing up settings from the controller...
