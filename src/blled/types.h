@@ -58,6 +58,7 @@ extern "C"
         char trayColor[16][7] = {};       // "RRGGBB", "" when the slot is empty or unknown
         char extColor[7] = "";
         int trayNow = 255;                // active slot: 0-15 AMS, 254 external spool, 255 none
+        int trayTar = 255;                // slot the AMS is switching to (same numbering)
 
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools

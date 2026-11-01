@@ -225,7 +225,7 @@
             <div class="group">
                 <h2>While printing</h2>
                 <label class="row">
-                    <span class="txt"><b>Filament color</b><small>The strip gently pulses in the color of the filament being printed, and shows a newly loaded spool's color for 30 seconds. Black and white filament use your printing color.</small></span>
+                    <span class="txt"><b>Filament color</b><small>While the printer switches or loads filament, the strip pulses in the new spool's color. While printing it stays your printing color, with a short swell of the filament color about once a minute. Black and white filament use your printing color.</small></span>
                     <button type="button" class="ghost mini" data-preview="filament">Preview</button>
                     <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
                 </label>
@@ -541,7 +541,7 @@
         $('undo').addEventListener('click', loadConfig);
 
         // ---- Live strip ----
-        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow', pulse: 'Filament color' };
+        const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow', pulse: 'Filament color', accent: 'Filament accent', heat: 'Heat-up glow' };
         const STATES = { RUNNING: 'Printing', PAUSE: 'Paused', FINISH: 'Finished', IDLE: 'Idle', FAILED: 'Cancelled', PREPARE: 'Starting a print' };
         const MODES = { maintenance: 'Always on', rgbcycle: 'Rainbow', test: 'Test color', wifidebug: 'Showing Wi-Fi signal', 'idle-off': 'Off while idle' };
 

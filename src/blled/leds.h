@@ -48,7 +48,8 @@ enum LedFx : uint8_t
     FX_PROGRESS = 3,
     FX_RAINBOW = 4,
     FX_PULSE = 5, // slow, shallow pulse used for filament color
-    FX_HEATDEMO = 6 // preview: plays the whole heat-up, cold to hot, over 7 s
+    FX_HEATDEMO = 6, // preview: plays the whole heat-up, cold to hot, over 7 s
+    FX_ACCENT = 7    // printing: normal light, with a filament-color swell now and then
 };
 
 const char *ledFxName(uint8_t fx)
@@ -61,6 +62,7 @@ const char *ledFxName(uint8_t fx)
     case FX_RAINBOW: return "rainbow";
     case FX_PULSE: return "pulse";
     case FX_HEATDEMO: return "heat";
+    case FX_ACCENT: return "accent";
     default: return "solid";
     }
 }
@@ -172,9 +174,19 @@ int effectiveBrightness()
 // ---------------------------------------------------------------------------
 //  Filament color: the color the active AMS slot / external spool reports
 // ---------------------------------------------------------------------------
+bool filamentSwitching()
+{
+    int st = printerVariables.stage;
+    return st == 4 || st == 22 || st == 24; // changing / unloading / loading filament
+}
+
 const char *activeFilamentHex()
 {
     int n = printerVariables.trayNow;
+    // While switching, show the spool being loaded (tray_now is often "none" mid-swap)
+    int tar = printerVariables.trayTar;
+    if (filamentSwitching() && ((tar >= 0 && tar < 16) || tar == 254))
+        n = tar;
     if (n >= 0 && n < 16)
         return printerVariables.trayColor[n];
     if (n == 254)
@@ -371,10 +383,24 @@ static void ledRenderFrame()
     }
     case FX_PULSE:
     {
-        // 6 s period, only dips to ~55% - a gentle glow rather than a flash
-        float k = 0.55f + 0.45f * (0.5f + 0.5f * cosf(2.0f * PI * (float)(now % 6000) / 6000.0f));
+        // 5 s period, dips to ~45% - a steady, soft pulse rather than a flash
+        float k = 0.45f + 0.55f * (0.5f + 0.5f * cosf(2.0f * PI * (float)(now % 5000) / 5000.0f));
         for (int i = 0; i < 5; i++)
             out[i] *= k;
+        break;
+    }
+    case FX_ACCENT:
+    {
+        // Normal light most of the time. Once a minute, two slow swells into the filament color
+        // (ledAlt) and back, 10 s in total.
+        const uint32_t period = 60000, swell = 10000;
+        uint32_t ph = now % period;
+        if (ph < swell)
+        {
+            float w = 0.5f - 0.5f * cosf(4.0f * PI * (float)ph / (float)swell);
+            for (int i = 0; i < 5; i++)
+                out[i] = out[i] + (alt[i] * ease - out[i]) * w;
+        }
         break;
     }
     case FX_BLINK:
@@ -944,6 +970,19 @@ void updateleds()
 
     // HEAT / FILAMENT PREVIEW -- these also run outside a print, so they come before the "off" states
 
+    // Switching filament (AMS swap or load / unload): pulse in the incoming spool's color. Comes
+    // before the heat-up glow, since the nozzle often reheats during a swap.
+    {
+        COLOR c;
+        if (printerVariables.online && printerConfig.filamentColorFx && filamentSwitching() && filamentLedColor(c))
+        {
+            ledSetNextFx(FX_PULSE);
+            tweenToColor(c, 1500);
+            printLogs("Switching filament - filament color", c);
+            return;
+        }
+    }
+
     // Heat-up glow while preheating for a print, or while the bed / nozzle heats from the screen
     if (printerVariables.online && heatGlowActive())
     {
@@ -953,17 +992,15 @@ void updateleds()
         return;
     }
 
-    // Filament preview: while loading / unloading (stages 24 / 22), and for 30 s after a different
-    // spool becomes active outside a print, show that spool's color
+    // Filament preview: for 30 s after a different spool becomes active outside a print
     {
         COLOR c;
-        bool loading = printerVariables.stage == 22 || printerVariables.stage == 24;
         bool preview = !printingState() && (int32_t)(printerVariables.filamentPreviewUntil - millis()) > 0;
-        if (printerVariables.online && printerConfig.filamentColorFx && (loading || preview) && filamentLedColor(c))
+        if (printerVariables.online && printerConfig.filamentColorFx && preview && filamentLedColor(c))
         {
             ledSetNextFx(FX_PULSE);
             tweenToColor(c, 1500);
-            printLogs(loading ? "Loading filament - filament color" : "New spool - filament color preview", c);
+            printLogs("New spool - filament color preview", c);
             return;
         }
     }
@@ -1062,7 +1099,8 @@ void updateleds()
     if (printerVariables.stage == 0 && printerVariables.gcodeState == "RUNNING")
     {
         COLOR base = printerConfig.runningColor; // Customisable - Default is WHITE
-        bool useFilament = printerConfig.filamentColorFx && filamentLedColor(base);
+        COLOR fil;
+        bool useFilament = printerConfig.filamentColorFx && filamentLedColor(fil);
         // Almost done: in the last minutes, blend toward the finish color as a heads-up
         if (almostDoneBlend() > 0.0f && !printerConfig.progressFx)
         {
@@ -1079,13 +1117,12 @@ void updateleds()
             ledSetProgressTarget(printerConfig.finishColor);
             showFx(FX_PROGRESS, base);
         }
-        else if (useFilament)
+        else if (useFilament && !(printerConfig.timelapseSteady && printerVariables.timelapse))
         {
-            // Filament color gently pulses instead of sitting solid - but holds steady while a
-            // timelapse records, or the brightness changes would flicker between frames
-            if (!(printerConfig.timelapseSteady && printerVariables.timelapse))
-                ledSetNextFx(FX_PULSE);
-            tweenToColor(base, 1500); // slower fade so a filament swap reads as a color change
+            // Normal light, with a short filament-color swell once a minute. Skipped while a
+            // timelapse records with "steady for timelapse" on, so frames don't change color.
+            ledSetProgressTarget(fil);
+            showFx(FX_ACCENT, base);
         }
         else
         {

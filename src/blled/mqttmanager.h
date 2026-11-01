@@ -277,6 +277,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["subtask_name"] = true;
     // Filament colors: AMS units/slots, the active slot, and the external spool
     filter["print"]["ams"]["tray_now"] = true;
+    filter["print"]["ams"]["tray_tar"] = true;
     filter["print"]["ams"]["ams"][0]["id"] = true;
     filter["print"]["ams"]["ams"][0]["tray"][0]["id"] = true;
     filter["print"]["ams"]["ams"][0]["tray"][0]["tray_color"] = true;
@@ -381,6 +382,8 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         {
             if (!ams["tray_now"].isNull())
                 printerVariables.trayNow = ams["tray_now"].as<String>().toInt();
+            if (!ams["tray_tar"].isNull())
+                printerVariables.trayTar = ams["tray_tar"].as<String>().toInt();
             for (JsonObject unit : ams["ams"].as<JsonArray>())
             {
                 int unitId = unit["id"].as<String>().toInt();
@@ -397,7 +400,12 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             }
         }
         if (!print["ipcam"]["timelapse"].isNull())
-            printerVariables.timelapse = (print["ipcam"]["timelapse"] == "enable");
+        {
+            bool tl = (print["ipcam"]["timelapse"] == "enable");
+            if (tl != printerVariables.timelapse)
+                filamentChanged = true; // the filament effect depends on it, so refresh the strip
+            printerVariables.timelapse = tl;
+        }
 
         if (!print["vt_tray"].isNull())
             setHex(printerVariables.extColor, print["vt_tray"]["tray_color"] | "");
