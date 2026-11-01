@@ -552,14 +552,25 @@ bool nozzleHeating() { return printerVariables.nozzleTarget > 30 && printerVaria
 
 // Heat-up glow applies while the printer preheats for a print (stage 2 bed, 7 hotend), or whenever
 // the bed or nozzle is heating outside a print (e.g. set from the printer screen)
+bool isLidarStage(int st);
+
 bool heatGlowActive()
 {
     if (!printerConfig.heatGlowFx)
         return false;
     if (printerVariables.stage == 2 || printerVariables.stage == 7)
         return true;
-    // Outside a print; never over a finished print's color or its cool-down hold
-    return !printingState() && !printerVariables.finished && !holdingFinish() && (bedHeating() || nozzleHeating());
+    bool heating = bedHeating() || nozzleHeating();
+    if (printingState())
+    {
+        // Any heating before the first layer starts (printers differ in which startup step heats),
+        // but not while printing, paused, or during a lidar scan that needs a dark chamber
+        return heating && printerVariables.stage != 0 && !isLidarStage(printerVariables.stage) &&
+               printerVariables.gcodeState != "PAUSE";
+    }
+    // Outside a print (e.g. a temperature set on the printer screen); setting a temperature also
+    // clears a finished print's hold, see the MQTT handler
+    return heating && !printerVariables.coolWaiting;
 }
 
 // Heat-up glow: cool blue -> warm orange as the heating parts approach their targets

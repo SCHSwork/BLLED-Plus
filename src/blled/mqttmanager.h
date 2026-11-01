@@ -731,9 +731,22 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     // An AMS swap mid-print changes the strip color when filament color mode is on
     if (filamentChanged && printerConfig.filamentColorFx)
         Changed = true;
-    // Setting a temperature on the printer screen wakes the lights (and starts the heat-up glow)
+    // Setting a temperature on the printer screen wakes the lights (and starts the heat-up glow).
+    // Outside a print it also counts as "dealing with the printer", like opening the door, so it
+    // clears a finished print's color hold.
     if (targetChanged && printerConfig.heatGlowFx)
+    {
         Changed = true;
+        bool printingNow = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+        bool heatingRequested = printerVariables.bedTarget > 30 || printerVariables.nozzleTarget > 30;
+        if (!printingNow && heatingRequested)
+        {
+            printerVariables.waitingForDoor = false;
+            printerConfig.finish_check = false;
+            printerVariables.finished = false;
+            printerVariables.coolWaiting = false;
+        }
+    }
 
     if (Changed == true)
     {
