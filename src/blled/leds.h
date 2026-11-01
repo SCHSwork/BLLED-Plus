@@ -47,7 +47,8 @@ enum LedFx : uint8_t
     FX_BLINK = 2,
     FX_PROGRESS = 3,
     FX_RAINBOW = 4,
-    FX_PULSE = 5 // slow, shallow pulse used for filament color
+    FX_PULSE = 5, // slow, shallow pulse used for filament color
+    FX_HEATDEMO = 6 // preview: plays the whole heat-up, cold to hot, over 7 s
 };
 
 const char *ledFxName(uint8_t fx)
@@ -59,6 +60,7 @@ const char *ledFxName(uint8_t fx)
     case FX_PROGRESS: return "progress";
     case FX_RAINBOW: return "rainbow";
     case FX_PULSE: return "pulse";
+    case FX_HEATDEMO: return "heat";
     default: return "solid";
     }
 }
@@ -206,6 +208,8 @@ bool filamentLedColor(COLOR &out)
     snprintf(out.RGBhex, sizeof(out.RGBhex), "#%02X%02X%02X", out.r, out.g, out.b);
     return true;
 }
+
+COLOR heatColorAt(float p); // heat-up colors, defined further down
 
 COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
 {
@@ -391,6 +395,17 @@ static void ledRenderFrame()
         }
         break;
     }
+    case FX_HEATDEMO:
+    {
+        COLOR h = heatColorAt((float)(now - fadeStart) / 7000.0f);
+        float k = (float)effectiveBrightness() / 100.0f;
+        out[0] = toPerceptual((int)(h.r * k));
+        out[1] = toPerceptual((int)(h.g * k));
+        out[2] = toPerceptual((int)(h.b * k));
+        out[3] = 0;
+        out[4] = 0;
+        break;
+    }
     case FX_RAINBOW:
     {
         float v = toPerceptual((int)(255 * effectiveBrightness() / 100.0f));
@@ -573,6 +588,36 @@ bool heatGlowActive()
     return heating && !printerVariables.coolWaiting;
 }
 
+// The heat-up color for progress p (0 = cold, 1 = at temperature). Goes around the color wheel -
+// blue, purple, pink, red, orange - so it stays vivid the whole way. (Mixing blue and orange
+// directly passes through washed-out greys that look like white on an LED strip.)
+COLOR heatColorAt(float p)
+{
+    p = constrain(p, 0.0f, 1.0f);
+    float h = fmodf(225.0f + 160.0f * p, 360.0f) / 60.0f;
+    int i = (int)h;
+    float f = h - i;
+    float q = 1.0f - f;
+    float rgb[3];
+    switch (i)
+    {
+    case 0: rgb[0] = 1; rgb[1] = f; rgb[2] = 0; break;
+    case 1: rgb[0] = q; rgb[1] = 1; rgb[2] = 0; break;
+    case 2: rgb[0] = 0; rgb[1] = 1; rgb[2] = f; break;
+    case 3: rgb[0] = 0; rgb[1] = q; rgb[2] = 1; break;
+    case 4: rgb[0] = f; rgb[1] = 0; rgb[2] = 1; break;
+    default: rgb[0] = 1; rgb[1] = 0; rgb[2] = q; break;
+    }
+    COLOR c;
+    c.r = (short)(rgb[0] * 255 + 0.5f);
+    c.g = (short)(rgb[1] * 255 + 0.5f);
+    c.b = (short)(rgb[2] * 255 + 0.5f);
+    c.ww = 0;
+    c.cw = 0;
+    snprintf(c.RGBhex, sizeof(c.RGBhex), "#%02X%02X%02X", c.r, c.g, c.b);
+    return c;
+}
+
 // Heat-up glow: cool blue -> warm orange as the heating parts approach their targets
 COLOR heatGlowColor()
 {
@@ -591,15 +636,7 @@ COLOR heatGlowColor()
         n++;
     }
     float p = n ? sum / n : 0.0f;
-    COLOR c;
-    // #2F6BFF (cool) -> #FF7A1A (hot)
-    c.r = (short)(0x2F + (0xFF - 0x2F) * p);
-    c.g = (short)(0x6B + (0x7A - 0x6B) * p);
-    c.b = (short)(0xFF + (0x1A - 0xFF) * p);
-    c.ww = 0;
-    c.cw = 0;
-    snprintf(c.RGBhex, sizeof(c.RGBhex), "#%02X%02X%02X", c.r, c.g, c.b);
-    return c;
+    return heatColorAt(p);
 }
 
 // 0 outside the "almost done" window; rises to 1 as the print's remaining time runs out

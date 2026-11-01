@@ -702,8 +702,8 @@ void handlePreview(AsyncWebServerRequest *request)
     }
     else if (what == "heat")
     {
-        // Mid-way heat-up color
-        startPreview(hex2rgb("#B87590"), FX_SOLID, 6000, false);
+        // The whole heat-up, cold to hot, then hold "hot" for a moment
+        startPreview(heatColorAt(0.0f), FX_HEATDEMO, 8500, false);
     }
     else
     {
