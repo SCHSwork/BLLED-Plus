@@ -45,6 +45,8 @@ int str2mac(const char* mac, uint8_t* values){
 bool connectToWifi(){
     Serial.println(F("-------------------------------------"));
     WiFi.mode(WIFI_STA);   //ESP32 connects to an access point
+    // Name shown in the router's device list (otherwise it shows as "esp32-xxxxxx")
+    WiFi.setHostname(globalVariables.Host.c_str());
     delay(10);
     WiFi.disconnect();
     if(strlen(printerConfig.BSSID) == 0){

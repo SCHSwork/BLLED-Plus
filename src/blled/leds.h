@@ -161,10 +161,14 @@ bool computeQuiet()
 }
 
 volatile bool workLightOn = false; // door work light showing: full brightness
+bool spotlightOn = false;          // set only while the first-layer spotlight color is being applied
+bool idleDimActive = false;        // idle timer ran out and the strip is dimmed (not off yet)
 
 int effectiveBrightness()
 {
     if (workLightOn)
+        return 100;
+    if (spotlightOn && !quietNow)
         return 100;
     if (quietNow && !printerConfig.maintMode)
         return min(printerConfig.brightness, printerConfig.quietBrightness);
@@ -682,6 +686,32 @@ bool isLidarStage(int st)
     return st == 1 || st == 8 || st == 9 || st == 10 || st == 12 || st == 14;
 }
 
+// The part of the printer an active HMS warning is about (0x07 AMS, 0x0C camera / AI checks), 0 if none
+uint8_t hmsModule()
+{
+    if (!printerVariables.hmsstate)
+        return 0;
+    return (uint8_t)((printerVariables.parsedHMScode >> 56) & 0xFF);
+}
+
+// First-layer spotlight: full white while the first layer prints. Only in plain printing (stage 0),
+// so every lidar step - bed scan, extrusion calibration, first-layer inspection - keeps its own
+// (dark) color.
+bool spotlightWanted()
+{
+    return printerConfig.firstLayerSpotlight && printerVariables.online &&
+           printerVariables.gcodeState == "RUNNING" && printerVariables.stage == 0 &&
+           printerVariables.overridestage != 10 && printerVariables.layer == 1;
+}
+
+// How long the idle timer has been running out
+unsigned long idleForMs() { return millis() - printerConfig.inactivityStartms; }
+bool idleDimExpired()
+{
+    return printerConfig.idleOffMins > 0 &&
+           idleForMs() > (unsigned long)printerConfig.inactivityTimeOut + (unsigned long)printerConfig.idleOffMins * 60000UL;
+}
+
 // Shorthand: show a color with an effect
 static void showFx(uint8_t fx, const COLOR &c)
 {
@@ -765,6 +795,9 @@ void updateleds()
                  printerVariables.parsedHMSlevel.c_str());
         LogSerial.println(ledDbgStr);
     }
+
+    bool wasDim = idleDimActive;
+    idleDimActive = false; // the idle block below sets it again while it applies
 
     // Initial Boot
     if (printerVariables.initalisedLEDs == false)
@@ -926,6 +959,12 @@ void updateleds()
         // SERIOUS HMS state
         if (printerVariables.parsedHMSlevel == "Serious")
         {
+            if (hmsModule() == 0x07)
+            {
+                showFx(printerConfig.errorFx, printerConfig.amsErrorRGB);
+                printLogs("AMS PROBLEM", printerConfig.amsErrorRGB);
+                return;
+            }
             showFx(printerConfig.errorFx, printerConfig.hmsSeriousRGB);
             LogSerial.printf("HMS SERIOUS Severity      Error Code: %016llX\n", printerVariables.parsedHMScode);
             printLogs("PROBLEM", printerConfig.hmsSeriousRGB);
@@ -935,6 +974,12 @@ void updateleds()
         // FATAL HMS state
         if (printerVariables.parsedHMSlevel == "Fatal")
         {
+            if (hmsModule() == 0x07)
+            {
+                showFx(printerConfig.errorFx, printerConfig.amsErrorRGB);
+                printLogs("AMS PROBLEM", printerConfig.amsErrorRGB);
+                return;
+            }
             showFx(printerConfig.errorFx, printerConfig.hmsFatalRGB);
             LogSerial.printf("HMS FATAL Severity      Error Code: %016llX\n", printerVariables.parsedHMScode);
             printLogs("PROBLEM", printerConfig.hmsFatalRGB);
@@ -942,30 +987,49 @@ void updateleds()
         };
     };
 
-    // BLUE -- BLUE -- BLUE -- BLUE
+    // PAUSED / PROBLEMS -- what kind of problem decides the color
 
-    // Pause (by user or via Gcode)
-    if ((printerVariables.stage == 16 || printerVariables.stage == 30) || printerVariables.gcodeState == "PAUSE")
     {
-        showFx(printerConfig.pauseFx, printerConfig.pauseRGB);
-        printLogs("Stage 16, gcodeState pause, PAUSED", printerConfig.pauseRGB);
-        return;
-    }
+        int st = printerVariables.stage;
+        bool paused = printerVariables.gcodeState == "PAUSE" || st == 5 || st == 16 || st == 30;
 
-    // First Layer Error PAUSED
-    if (printerVariables.stage == 34)
-    {
-        showFx(printerConfig.pauseFx, printerConfig.firstlayerRGB);
-        printLogs("Stage 34, FIRST LAYER ERROR, PAUSED", printerConfig.firstlayerRGB);
-        return;
-    }
-
-    // Nozzle Clog PAUSED
-    if (printerVariables.stage == 35)
-    {
-        showFx(printerConfig.pauseFx, printerConfig.nozzleclogRGB);
-        printLogs("Stage 35, NOZZLE CLOG, PAUSED", printerConfig.nozzleclogRGB);
-        return;
+        // First-layer problem, or the AI camera check (spaghetti etc.) paused the print
+        if (st == 34 || (paused && hmsModule() == 0x0C))
+        {
+            showFx(printerConfig.pauseFx, printerConfig.firstlayerRGB);
+            printLogs("PAUSED - first layer / print quality problem", printerConfig.firstlayerRGB);
+            return;
+        }
+        // Nozzle clog
+        if (st == 35)
+        {
+            showFx(printerConfig.pauseFx, printerConfig.nozzleclogRGB);
+            printLogs("Stage 35, NOZZLE CLOG, PAUSED", printerConfig.nozzleclogRGB);
+            return;
+        }
+        // AMS problem
+        if (printerConfig.errordetection && (st == 26 || (paused && hmsModule() == 0x07)))
+        {
+            showFx(printerConfig.errorFx, printerConfig.amsErrorRGB);
+            printLogs("PAUSED - AMS problem", printerConfig.amsErrorRGB);
+            return;
+        }
+        // Paused by you (screen or app): the normal pause color
+        if (st == 16 || (paused && !printerConfig.needsYouEnabled))
+        {
+            showFx(printerConfig.pauseFx, printerConfig.pauseRGB);
+            printLogs("PAUSED by you", printerConfig.pauseRGB);
+            return;
+        }
+        // Paused for any other reason - a pause in the file, a cutter or nozzle problem, an AMS
+        // that needs a hand: the printer is waiting for you
+        bool waitingStage = st == 5 || st == 23 || st == 27 || st == 28 || st == 30 || st == 32 || st == 33;
+        if (paused || (waitingStage && printingState()))
+        {
+            showFx(FX_BREATHE, printerConfig.needsYouRGB);
+            printLogs("PAUSED - waiting for you", printerConfig.needsYouRGB);
+            return;
+        }
     }
 
     // HEAT / FILAMENT PREVIEW -- these also run outside a print, so they come before the "off" states
@@ -1072,8 +1136,28 @@ void updateleds()
         return;
     }
 
-    // Idle Timeout (Has to be enabled)
-    if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerConfig.isIdleOFFActive == false && printerConfig.inactivityEnabled)
+    // Idle Timeout (Has to be enabled): dim first if wanted, then off
+    bool idleTimedOut = (printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() &&
+                        idleForMs() > (unsigned long)printerConfig.inactivityTimeOut && printerConfig.inactivityEnabled;
+    if (idleTimedOut && printerConfig.idleDimEnabled && printerConfig.isIdleOFFActive == false && !idleDimExpired())
+    {
+        COLOR d = printerConfig.runningColor;
+        float k = printerConfig.idleDimLevel / 100.0f;
+        d.r = (short)(d.r * k); d.g = (short)(d.g * k); d.b = (short)(d.b * k);
+        d.ww = (short)(d.ww * k); d.cw = (short)(d.cw * k);
+        // Keep at least a faint glow, even with a low brightness setting
+        if (d.r + d.g + d.b + d.ww + d.cw == 0)
+            d.ww = d.cw = 3;
+        idleDimActive = true;
+        tweenToColor(d, 3000);
+        if (!wasDim)
+        {
+            controlChamberLight(false);
+            printLogs("Idle - dimmed", d);
+        }
+        return;
+    }
+    if (idleTimedOut && printerConfig.isIdleOFFActive == false)
     {
         tweenToColor(0, 0, 0, 0, 0, 2000); // OFF, slow fade
         controlChamberLight(false);        // Turn off chamber light via MQTT
@@ -1092,6 +1176,16 @@ void updateleds()
     {
         tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
         printLogs("Stage 2, PREHEATING BED", printerConfig.runningColor);
+        return;
+    }
+
+    // First layer: full-brightness white so you (and the camera) can see it go down
+    if (spotlightWanted())
+    {
+        spotlightOn = true;
+        tweenToColor(0, 0, 0, 255, 255, 800);
+        spotlightOn = false;
+        printLogs("First layer - spotlight", 0, 0, 0, 255, 255);
         return;
     }
 
@@ -1391,11 +1485,56 @@ void ledsloop()
 
     // Need an trigger action to run updateleds() so lights turn off
     // There is no change in the printer STATE, just monitoring the timer and triggering when over a threshhold
-    if (printerConfig.inactivityEnabled && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && printerVariables.finished == false && !printerVariables.coolWaiting && printerConfig.isIdleOFFActive == false)
+    if (printerConfig.inactivityEnabled && (millis() - printerConfig.inactivityStartms) > printerConfig.inactivityTimeOut && (printerVariables.finished == false || !printerConfig.finishindication) && !printerVariables.coolWaiting && printerConfig.isIdleOFFActive == false && !idleDimActive)
     {
         // Opening or Closing the Door will turn LEDs back on and restart the timer.
         updateleds();
     }
+    // Dimmed while idle: turn off once that time is up too
+    if (idleDimActive && idleDimExpired())
+    {
+        idleDimActive = false;
+        updateleds();
+    }
+
+    // First-layer spotlight starts and ends with the layer number, which isn't a state change
+    static bool spotWas = false;
+    bool spotNow = spotlightWanted();
+    if (spotNow != spotWas)
+    {
+        spotWas = spotNow;
+        updateleds();
+    }
+
+    // Printer light sync: outside prints, the printer's own light follows the strip turning on or
+    // off (dimmed counts as off). Only on a change, so switching the light on the screen still works.
+    // Never during a print - the printer handles its light itself (camera, lidar).
+    static bool syncLit = false, syncSeeded = false;
+    static unsigned long syncChangeMs = 0;
+    bool litNow = !idleDimActive && (currentRed || currentGreen || currentBlue || currentWarm || currentCold);
+    if (!syncSeeded)
+    {
+        syncSeeded = true;
+        syncLit = litNow;
+    }
+    if (litNow != syncLit)
+    {
+        if (syncChangeMs == 0)
+            syncChangeMs = millis();
+        else if (millis() - syncChangeMs > 3000) // settled for 3 s
+        {
+            syncLit = litNow;
+            syncChangeMs = 0;
+            if (printerConfig.controlChamberLight && printerVariables.online && !printingState() &&
+                !previewActive() && printerVariables.printerledstate != litNow)
+            {
+                LogSerial.printf("[LED] Printer light sync: %s\n", litNow ? "on" : "off");
+                controlChamberLight(litNow);
+            }
+        }
+    }
+    else
+        syncChangeMs = 0;
 
     // Offline check: the 30 s grace period ends without any MQTT event, so re-evaluate periodically
     static unsigned long lastOfflineCheck = 0;

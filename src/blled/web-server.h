@@ -202,6 +202,17 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["doorWorkLight"] = printerConfig.doorWorkLight;
     doc["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     doc["almostDoneMins"] = printerConfig.almostDoneMins;
+    doc["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    doc["needsYouEnabled"] = printerConfig.needsYouEnabled;
+    doc["needsYouRGB"] = printerConfig.needsYouRGB.RGBhex;
+    doc["needsYouWW"] = printerConfig.needsYouRGB.ww;
+    doc["needsYouCW"] = printerConfig.needsYouRGB.cw;
+    doc["amsErrorRGB"] = printerConfig.amsErrorRGB.RGBhex;
+    doc["amsErrorWW"] = printerConfig.amsErrorRGB.ww;
+    doc["amsErrorCW"] = printerConfig.amsErrorRGB.cw;
+    doc["idleDimEnabled"] = printerConfig.idleDimEnabled;
+    doc["idleDimLevel"] = printerConfig.idleDimLevel;
+    doc["idleOffMins"] = printerConfig.idleOffMins;
     // Quiet hours (times as HH:MM for <input type=time>)
     char hm[16];
     doc["quietEnabled"] = printerConfig.quietEnabled;
@@ -360,6 +371,15 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.doorWorkLight = request->hasParam("doorWorkLight", true);
     printerConfig.almostDoneEnabled = request->hasParam("almostDoneEnabled", true);
     printerConfig.almostDoneMins = constrain(getSafeParamInt(request, "almostDoneMins", printerConfig.almostDoneMins), 1, 60);
+    printerConfig.firstLayerSpotlight = request->hasParam("firstLayerSpotlight", true);
+    printerConfig.needsYouEnabled = request->hasParam("needsYouEnabled", true);
+    if (request->hasParam("needsYouRGB", true))
+        printerConfig.needsYouRGB = hex2rgb(getSafeParamValue(request, "needsYouRGB").c_str(), getSafeParamInt(request, "needsYouWW"), getSafeParamInt(request, "needsYouCW"));
+    if (request->hasParam("amsErrorRGB", true))
+        printerConfig.amsErrorRGB = hex2rgb(getSafeParamValue(request, "amsErrorRGB").c_str(), getSafeParamInt(request, "amsErrorWW"), getSafeParamInt(request, "amsErrorCW"));
+    printerConfig.idleDimEnabled = request->hasParam("idleDimEnabled", true);
+    printerConfig.idleDimLevel = constrain(getSafeParamInt(request, "idleDimLevel", printerConfig.idleDimLevel), 1, 90);
+    printerConfig.idleOffMins = constrain(getSafeParamInt(request, "idleOffMins", printerConfig.idleOffMins), 0, 999);
     // Quiet hours
     auto parseHM = [](const String &s, int fallback) -> int {
         int colon = s.indexOf(':');
@@ -541,6 +561,8 @@ void fillStatusJson(JsonDocument &doc)
     doc["workLight"] = (bool)workLightOn;
     doc["preview"] = previewActive();
     doc["almostDone"] = almostDoneBlend() > 0.0f;
+    doc["idleDim"] = idleDimActive;
+    doc["spotlight"] = spotlightWanted();
     if (clockSynced())
     {
         time_t now = time(nullptr);
@@ -883,6 +905,66 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
     }
 }
 
+// ---------------------------------------------------------------------------
+//  Settings-page self-check: once a minute the controller loads its own page. If that keeps
+//  failing while Wi-Fi is fine, the web server has frozen (the lights would still work), so the
+//  controller restarts - but never in the middle of a print, and only if the check has worked
+//  before (so a network that can't do the check never causes restarts).
+// ---------------------------------------------------------------------------
+static bool webCheckOnce()
+{
+    WiFiClient c;
+    c.setTimeout(4);
+    if (!c.connect(WiFi.localIP(), 80, 4000))
+        return false;
+    c.print("GET /api/ping HTTP/1.0\r\nHost: blled\r\nConnection: close\r\n\r\n");
+    unsigned long t0 = millis();
+    while (!c.available() && c.connected() && millis() - t0 < 5000)
+        vTaskDelay(pdMS_TO_TICKS(20));
+    String line = c.readStringUntil('\n');
+    c.stop();
+    return line.indexOf(" 200") > 0;
+}
+
+static void webHealthTask(void *)
+{
+    bool everWorked = false;
+    int fails = 0;
+    vTaskDelay(pdMS_TO_TICKS(90000)); // let everything settle after boot
+    for (;;)
+    {
+        if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
+        {
+            if (webCheckOnce())
+            {
+                if (fails)
+                    LogSerial.printf("[Web] Settings page answering again after %d failed checks\n", fails);
+                everWorked = true;
+                fails = 0;
+            }
+            else if (everWorked)
+            {
+                fails++;
+                LogSerial.printf("[Web] Settings page didn't answer its own check (%d in a row)\n", fails);
+                bool printing = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" ||
+                                printerVariables.gcodeState == "PREPARE";
+                if (fails >= 3 && !printing && !shouldRestart)
+                {
+                    LogSerial.println(F("[Web] Settings page is frozen - restarting the controller"));
+                    restartRequestTime = millis();
+                    shouldRestart = true;
+                }
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(60000));
+    }
+}
+
+void startWebHealthCheck()
+{
+    xTaskCreate(webHealthTask, "webHealth", 4096, NULL, 1, NULL);
+}
+
 void setupWebserver()
 {
     if (!MDNS.begin(globalVariables.Host.c_str()))
@@ -904,6 +986,8 @@ void setupWebserver()
     } });
     webServer.on("/status", HTTP_GET, handleStatusPage);
     webServer.on("/api/status", HTTP_GET, handleApiStatus);
+    webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)
+                 { request->send(200, "text/plain", "ok"); });
     webServer.on("/api/useDiscoveredSerial", HTTP_POST, handleUseDiscoveredSerial);
     webServer.on("/api/quick", HTTP_POST, handleQuick);
     webServer.on("/api/preview", HTTP_POST, handlePreview);

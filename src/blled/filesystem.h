@@ -139,6 +139,18 @@ void saveFileSystem()
     json["doorWorkLight"] = printerConfig.doorWorkLight;
     json["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     json["almostDoneMins"] = printerConfig.almostDoneMins;
+    json["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    json["colorsV2"] = true;
+    json["needsYouEnabled"] = printerConfig.needsYouEnabled;
+    json["needsYouRGB"] = printerConfig.needsYouRGB.RGBhex;
+    json["needsYouWW"] = printerConfig.needsYouRGB.ww;
+    json["needsYouCW"] = printerConfig.needsYouRGB.cw;
+    json["amsErrorRGB"] = printerConfig.amsErrorRGB.RGBhex;
+    json["amsErrorWW"] = printerConfig.amsErrorRGB.ww;
+    json["amsErrorCW"] = printerConfig.amsErrorRGB.cw;
+    json["idleDimEnabled"] = printerConfig.idleDimEnabled;
+    json["idleDimLevel"] = printerConfig.idleDimLevel;
+    json["idleOffMins"] = printerConfig.idleOffMins;
     // Quiet hours
     json["quietEnabled"] = printerConfig.quietEnabled;
     json["quietStart"] = printerConfig.quietStart;
@@ -241,6 +253,15 @@ void loadFileSystem()
         printerConfig.pauseRGB = hex2rgb(json["pauseRGB"], json["pauseWW"], json["pauseCW"]);
         printerConfig.firstlayerRGB = hex2rgb(json["firstlayerRGB"], json["firstlayerWW"], json["firstlayerCW"]);
         printerConfig.nozzleclogRGB = hex2rgb(json["nozzleclogRGB"], json["nozzleclogWW"], json["nozzleclogCW"]);
+        // 2.5: first-layer and clog problems got their own colors. Settings from older firmware
+        // still have the old shared blue for them, so give them the new colors once.
+        if (!(json["colorsV2"] | false))
+        {
+            if (strcasecmp(printerConfig.firstlayerRGB.RGBhex, "#0000FF") == 0 && !printerConfig.firstlayerRGB.ww && !printerConfig.firstlayerRGB.cw)
+                printerConfig.firstlayerRGB = hex2rgb("#FF0090");
+            if (strcasecmp(printerConfig.nozzleclogRGB.RGBhex, "#0000FF") == 0 && !printerConfig.nozzleclogRGB.ww && !printerConfig.nozzleclogRGB.cw)
+                printerConfig.nozzleclogRGB = hex2rgb("#FFD000");
+        }
         printerConfig.hmsSeriousRGB = hex2rgb(json["hmsSeriousRGB"], json["hmsSeriousWW"], json["hmsSeriousCW"]);
         printerConfig.hmsFatalRGB = hex2rgb(json["hmsFatalRGB"], json["hmsFatalWW"], json["hmsFatalCW"]);
         printerConfig.filamentRunoutRGB = hex2rgb(json["filamentRunoutRGB"], json["filamentRunoutWW"], json["filamentRunoutCW"]);
@@ -264,6 +285,13 @@ void loadFileSystem()
         printerConfig.doorWorkLight = json["doorWorkLight"] | false;
         printerConfig.almostDoneEnabled = json["almostDoneEnabled"] | false;
         printerConfig.almostDoneMins = constrain((int)(json["almostDoneMins"] | 5), 1, 60);
+        printerConfig.firstLayerSpotlight = json["firstLayerSpotlight"] | true;
+        printerConfig.needsYouEnabled = json["needsYouEnabled"] | true;
+        printerConfig.needsYouRGB = hex2rgb(json["needsYouRGB"] | "#FF7A00", json["needsYouWW"] | 0, json["needsYouCW"] | 0);
+        printerConfig.amsErrorRGB = hex2rgb(json["amsErrorRGB"] | "#9000FF", json["amsErrorWW"] | 0, json["amsErrorCW"] | 0);
+        printerConfig.idleDimEnabled = json["idleDimEnabled"] | true;
+        printerConfig.idleDimLevel = constrain((int)(json["idleDimLevel"] | 15), 1, 90);
+        printerConfig.idleOffMins = constrain((int)(json["idleOffMins"] | 60), 0, 999);
         // Quiet hours
         printerConfig.quietEnabled = json["quietEnabled"] | false;
         printerConfig.quietStart = constrain((int)(json["quietStart"] | 23 * 60), 0, 1439);

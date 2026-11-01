@@ -75,6 +75,7 @@
             <div class="stat"><span>Progress</span><span id="pct">–</span></div>
             <div class="stat"><span>Layer</span><span id="layer">–</span></div>
             <div class="stat"><span>Time left</span><span id="eta">–</span></div>
+            <div class="stat"><span>Done around</span><span id="doneAt">–</span></div>
         </div>
 
         <div class="group">
@@ -103,6 +104,7 @@
             <div class="stat"><span>Quiet hours</span><span id="quiet">–</span></div>
             <div class="stat"><span>Running for</span><span id="uptime">–</span></div>
             <div class="stat"><span>Free memory</span><span id="heap">–</span></div>
+            <div class="stat"><span>Address</span><span id="addr">–</span></div>
             <div class="stat"><span>Firmware</span><span id="fw">–</span></div>
         </div>
 
@@ -165,7 +167,7 @@
             const rainbow = d.ledFx === 'rainbow';
             $('strip').className = 'strip' + (m.off && !rainbow ? ' off' : '') + (['breathe', 'blink', 'rainbow', 'pulse'].includes(d.ledFx) ? ' ' + d.ledFx : '');
             document.documentElement.style.setProperty('--led', rainbow ? '#ff5f5f' : m.css);
-            set('stateFx', (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.workLight ? 'Work light' : '') || (d.timelapse && d.gcodeState === 'RUNNING' ? 'Timelapse' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
+            set('stateFx', (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.spotlight ? 'First-layer spotlight' : '') || (d.idleDim ? 'Dimmed while idle' : '') || (d.workLight ? 'Work light' : '') || (d.timelapse && d.gcodeState === 'RUNNING' ? 'Timelapse' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : ''));
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');
@@ -201,6 +203,8 @@
                 set('pct', d.percent + '%');
                 set('layer', d.layer >= 0 ? d.layer + ' of ' + d.totalLayers : '–');
                 set('eta', d.remainingMins >= 0 ? dur(d.remainingMins * 60) : '–');
+                set('doneAt', d.remainingMins >= 0 && d.gcodeState === 'RUNNING'
+                    ? new Date(Date.now() + d.remainingMins * 60000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '–');
             }
 
             set('tNozzle', temp(d.nozzleTemp)); set('tNozzleT', d.nozzleTarget ? 'to ' + temp(d.nozzleTarget) : '');
@@ -234,6 +238,8 @@
             set('uptime', dur(d.uptime));
             set('heap', Math.round(d.heap / 1024) + ' KB');
             set('fw', d.fw);
+            // Both ways to reach it: the name keeps working if the router hands out a new number
+            $('addr').innerHTML = '<a href="http://' + (d.host || 'blled').toLowerCase() + '.local/">' + (d.host || 'blled').toLowerCase() + '.local</a> · ' + (d.ip || '');
         }
 
         // ---- Quick controls ----

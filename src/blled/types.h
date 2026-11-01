@@ -168,6 +168,13 @@ extern "C"
         bool doorWorkLight = false;     // Bright white while the door is open
         bool almostDoneEnabled = false; // Shift toward the finish color in the last minutes of a print
         int almostDoneMins = 5;
+        bool firstLayerSpotlight = true; // Full-brightness white for the first layer (never during lidar scans)
+        bool needsYouEnabled = true;    // Paused and waiting on you (not paused by you): its own color
+        COLOR needsYouRGB;
+        COLOR amsErrorRGB;              // AMS problems (AMS lost, AMS errors)
+        bool idleDimEnabled = true;     // When the idle timer runs out, dim first instead of going dark
+        int idleDimLevel = 15;          // % of normal brightness
+        int idleOffMins = 60;           // then turn off after this many more minutes (0 = stay dim)
 
         // Quiet hours: dim (or turn off) the strip during a nightly window
         bool quietEnabled = false;

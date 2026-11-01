@@ -31,8 +31,10 @@ void defaultcolors()
     printerConfig.wifiRGB = hex2rgb("#FFA500"); // Orange Wifi Scan
 
     printerConfig.pauseRGB = hex2rgb("#0000FF");          // Blue Pause
-    printerConfig.firstlayerRGB = hex2rgb("#0000FF");     // Blue
-    printerConfig.nozzleclogRGB = hex2rgb("#0000FF");     // Blue
+    printerConfig.firstlayerRGB = hex2rgb("#FF0090");     // Pink: first layer / spaghetti
+    printerConfig.nozzleclogRGB = hex2rgb("#FFD000");     // Yellow: nozzle clog
+    printerConfig.needsYouRGB = hex2rgb("#FF7A00");       // Amber: waiting for you
+    printerConfig.amsErrorRGB = hex2rgb("#9000FF");       // Purple: AMS problem
     printerConfig.hmsSeriousRGB = hex2rgb("#FF0000");     // Red
     printerConfig.hmsFatalRGB = hex2rgb("#FF0000");       // Red
     printerConfig.filamentRunoutRGB = hex2rgb("#FF0000"); // Red
@@ -93,6 +95,7 @@ void setup()
         configTzTime(printerConfig.tz, "pool.ntp.org", "time.google.com");
         tweenToColor(0, 0, 255, 0, 0); // BLUE
         setupWebserver();
+        startWebHealthCheck();
     }
 
     start_ssdp();

@@ -97,16 +97,33 @@
             <div class="group">
                 <h2>When nothing is happening</h2>
                 <div class="row">
-                    <label for="inactivityEnabled" class="txt"><b>Turn off after</b><small>Opening the door turns the lights back on.</small></label>
+                    <label for="inactivityEnabled" class="txt"><b>Idle after</b><small>After this long with nothing happening, the strip dims or turns off. Opening the door brings it back.</small></label>
                     <span data-show-if="inactivityEnabled"><input type="number" id="inactivityMins" name="inactivityMins" min="1" max="999" value="30" inputmode="numeric"> <span class="unit">min</span></span>
                     <input type="checkbox" class="tog" id="inactivityEnabled" name="inactivityEnabled">
+                </div>
+                <div data-show-if="inactivityEnabled">
+                <div class="row">
+                    <label for="idleDimEnabled" class="txt"><b>Dim first</b><small>When the timer runs out, the strip fades to a low glow instead of going dark, then turns off after the extra time (0 keeps the glow until you're back).</small></label>
+                    <input type="checkbox" class="tog" id="idleDimEnabled" name="idleDimEnabled">
+                </div>
+                <div data-show-if="idleDimEnabled">
+                    <div class="row sub">
+                        <label for="idleDimLevel" class="txt"><b>Glow</b></label>
+                        <input type="range" id="idleDimLevel" name="idleDimLevel" min="2" max="60" value="15" style="flex:1.2">
+                        <output id="idleDimOut" for="idleDimLevel" class="unit">15%</output>
+                    </div>
+                    <div class="row sub">
+                        <label for="idleOffMins" class="txt"><b>Then off after</b></label>
+                        <input type="number" id="idleOffMins" name="idleOffMins" min="0" max="999" value="60" inputmode="numeric"> <span class="unit">more min</span>
+                    </div>
+                </div>
                 </div>
                 <label class="row">
                     <span class="txt"><b>Work light when the door opens</b><small>Bright white while the door is open, then back to normal. Stays off while the lidar is scanning.</small></span>
                     <input type="checkbox" class="tog" id="doorWorkLight" name="doorWorkLight">
                 </label>
                 <label class="row">
-                    <span class="txt"><b>Control the chamber light too</b><small>Turns the printer's own light on with the door and off when idle.</small></span>
+                    <span class="txt"><b>Keep the printer's light in sync</b><small>The printer's own chamber light turns on and off with the strip, and with the door. During a print the printer controls its light itself, so the camera and lidar always get what they need.</small></span>
                     <input type="checkbox" class="tog" id="controlChamberLight" name="controlChamberLight">
                 </label>
             </div>
@@ -172,8 +189,12 @@
         <section class="panel" data-panel="alerts" role="tabpanel" hidden>
             <div class="group">
                 <label class="row">
-                    <span class="txt"><b>Change color when something needs attention</b></span>
+                    <span class="txt"><b>Change color when something needs attention</b><small>Each kind of problem gets its own color, so you can tell what's wrong from across the room.</small></span>
                     <input type="checkbox" class="tog" id="errorDetection" name="errorDetection">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>Show when the printer is waiting for you</b><small>When a print pauses on its own (a pause in the file, a cutter problem, filament to swap by hand), the strip slowly breathes the "Waiting for you" color. Pauses you make yourself keep the normal pause color.</small></span>
+                    <input type="checkbox" class="tog" id="needsYouEnabled" name="needsYouEnabled">
                 </label>
             </div>
             <div data-show-if="errorDetection">
@@ -228,6 +249,10 @@
                     <span class="txt"><b>Filament color</b><small>While the printer switches or loads filament, the strip pulses in the new spool's color. While printing it stays your printing color, with a short swell of the filament color about once a minute. Black and white filament use your printing color.</small></span>
                     <button type="button" class="ghost mini" data-preview="filament">Preview</button>
                     <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>First-layer spotlight</b><small>Full-brightness white while the first layer goes down, so you and the camera can check it. Stays off while the lidar scans or inspects the layer, then back to normal from layer 2.</small></span>
+                    <input type="checkbox" class="tog" id="firstLayerSpotlight" name="firstLayerSpotlight">
                 </label>
                 <label class="row">
                     <span class="txt"><b>Progress glow</b><small>The strip shifts from the printing color (or filament color) to the finished color as the print advances.</small></span>
@@ -304,8 +329,8 @@
             test: [['test', 'Test color']],
             finish: [['finish', 'Print finished', 'finishColor']],
             stages: [['stage14', 'Cleaning the nozzle'], ['stage1', 'Bed leveling'], ['stage8', 'Calibrating extrusion'], ['stage9', 'Scanning the bed'], ['stage10', 'First-layer inspection']],
-            paused: [['pause', 'Paused'], ['firstlayer', 'First-layer problem'], ['nozzleclog', 'Nozzle clog']],
-            errors: [['filamentRunout', 'Filament ran out'], ['frontCover', 'Front cover removed'], ['nozzleTemp', 'Nozzle temperature fault'], ['bedTemp', 'Bed temperature fault'], ['hmsSerious', 'Serious printer warning'], ['hmsFatal', 'Fatal printer error']],
+            paused: [['pause', 'Paused by you'], ['needsYou', 'Waiting for you'], ['firstlayer', 'First layer or spaghetti problem'], ['nozzleclog', 'Nozzle clog']],
+            errors: [['filamentRunout', 'Filament ran out'], ['amsError', 'AMS problem'], ['frontCover', 'Front cover removed'], ['nozzleTemp', 'Nozzle temperature fault'], ['bedTemp', 'Bed temperature fault'], ['hmsSerious', 'Serious printer warning'], ['hmsFatal', 'Fatal printer error']],
             wifi: [['wifi', 'Connecting to Wi-Fi']]
         };
         const ALL_LAMPS = Object.values(LAMPS).flat();
@@ -366,7 +391,7 @@
 
         // ---- Preview on the real strip (nothing is saved) ----
         const PAUSE_KEYS = ['pause', 'firstlayer', 'nozzleclog'];
-        const ERROR_KEYS = ['filamentRunout', 'frontCover', 'nozzleTemp', 'bedTemp', 'hmsSerious', 'hmsFatal'];
+        const ERROR_KEYS = ['filamentRunout', 'amsError', 'frontCover', 'nozzleTemp', 'bedTemp', 'hmsSerious', 'hmsFatal'];
         const fxOf = name => { const r = form.querySelector(`input[name="${name}"]:checked`); return r ? r.value : '0'; };
         async function preview(params, btn) {
             const old = btn.textContent;
@@ -393,7 +418,7 @@
             const row = b.closest('.lamp-row');
             const key = row.dataset.key;
             const [color, ww, cw] = row.querySelectorAll('.lamp-edit input');
-            const fx = key === 'finish' ? fxOf('finishFx') : PAUSE_KEYS.includes(key) ? fxOf('pauseFx') : ERROR_KEYS.includes(key) ? fxOf('errorFx') : '0';
+            const fx = key === 'needsYou' ? '1' : key === 'finish' ? fxOf('finishFx') : PAUSE_KEYS.includes(key) ? fxOf('pauseFx') : ERROR_KEYS.includes(key) ? fxOf('errorFx') : '0';
             preview({ rgb: color.value, ww: ww.value, cw: cw.value, fx }, b);
         });
 
@@ -407,6 +432,8 @@
         $('fadeMs').addEventListener('input', fadeOut);
         const quietOut = () => $('quietOut').textContent = +$('quietBrightness').value === 0 ? 'Off' : $('quietBrightness').value + '%';
         $('quietBrightness').addEventListener('input', quietOut);
+        const idleDimOut = () => $('idleDimOut').textContent = $('idleDimLevel').value + '%';
+        $('idleDimLevel').addEventListener('input', idleDimOut);
         $('brightnessslider').addEventListener('input', e => $('brightnesssliderDisplay').textContent = e.target.value + '%');
 
         // ---- Pick-one groups and show/hide rules ----
@@ -483,7 +510,8 @@
                     filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,
                     timelapseSteady: c.timelapseSteady !== false, heatGlowFx: c.heatGlowFx, celebrateFx: c.celebrateFx,
                     coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight,
-                    almostDoneEnabled: c.almostDoneEnabled
+                    almostDoneEnabled: c.almostDoneEnabled, firstLayerSpotlight: c.firstLayerSpotlight !== false,
+                    needsYouEnabled: c.needsYouEnabled !== false, idleDimEnabled: c.idleDimEnabled !== false
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 
@@ -501,6 +529,9 @@
                 $('fadeMs').value = num(c.fadeMs, 600);
                 $('coolDownTemp').value = num(c.coolDownTemp, 35);
                 $('almostDoneMins').value = num(c.almostDoneMins, 5);
+                $('idleDimLevel').value = num(c.idleDimLevel, 15);
+                $('idleOffMins').value = num(c.idleOffMins, 60);
+                idleDimOut();
                 $('quietStart').value = c.quietStart || '23:00';
                 $('quietEnd').value = c.quietEnd || '07:00';
                 $('quietBrightness').value = num(c.quietBrightness, 10);
@@ -559,7 +590,7 @@
                 if (d.gcodeState === 'RUNNING' && d.percent >= 0) state += ' ' + d.percent + '%';
             }
             $('stripState').textContent = state;
-            $('stripFx').textContent = (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.workLight ? 'Work light' : '') || (d.coolWaiting ? 'Cooling ' + Math.round(d.bedTemp) + '°' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
+            $('stripFx').textContent = (d.preview ? 'Previewing' : '') || (d.almostDone ? 'Almost done' : '') || (d.spotlight ? 'First-layer spotlight' : '') || (d.idleDim ? 'Dimmed while idle' : '') || (d.workLight ? 'Work light' : '') || (d.coolWaiting ? 'Cooling ' + Math.round(d.bedTemp) + '°' : '') || (d.quietActive ? 'Quiet hours' : '') || FX[d.ledFx] || (m.off ? 'Lights off' : '');
 
             const ls = $('linkState');
             ls.className = 'state ' + (d.printerConnection ? 'ok' : 'bad');
