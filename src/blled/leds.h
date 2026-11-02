@@ -644,7 +644,9 @@ COLOR heatColorAt(float p)
     }
     COLOR c;
     c.r = (short)(255.0f * orange + 0.5f);
-    c.g = (short)(64.0f * blue + 106.0f * orange + 0.5f);
+    // Reddish orange (#FF2800): LED strips make green look strong, so a "normal" orange like
+    // #FF6A00 comes out yellowish on the strip
+    c.g = (short)(64.0f * blue + 40.0f * orange + 0.5f);
     c.b = (short)(255.0f * blue + 0.5f);
     c.ww = 0;
     c.cw = 0;
