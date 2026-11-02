@@ -1164,7 +1164,12 @@ void updateleds()
     // Idle Timeout (Has to be enabled): dim first if wanted, then off
     bool idleTimedOut = (printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() &&
                         idleForMs() > (unsigned long)printerConfig.inactivityTimeOut && printerConfig.inactivityEnabled;
-    if (idleTimedOut && printerConfig.idleDimEnabled && printerConfig.isIdleOFFActive == false && !idleDimExpired())
+    // Only dim a strip that's on. If it's already dark - the printer's light was switched off, or
+    // the lights were turned off by hand - it stays dark instead of coming back as a glow.
+    bool stripLit = currentRed || currentGreen || currentBlue || currentWarm || currentCold;
+    bool lightOffByPrinter = printerConfig.replicatestate && !printerVariables.printerledstate;
+    if (idleTimedOut && printerConfig.idleDimEnabled && printerConfig.isIdleOFFActive == false && !idleDimExpired() &&
+        (stripLit || wasDim) && !lightOffByPrinter)
     {
         COLOR d = printerConfig.runningColor;
         float k = printerConfig.idleDimLevel / 100.0f;
