@@ -1206,12 +1206,27 @@ void updateleds()
             base.ww = (short)(base.ww + (f.ww - base.ww) * k);
             base.cw = (short)(base.cw + (f.cw - base.cw) * k);
         }
-        if (printerConfig.progressFx)
+        bool accent = useFilament && !(printerConfig.timelapseSteady && printerVariables.timelapse);
+        if (printerConfig.progressFx && accent)
+        {
+            // Both on: the base color follows the progress glow, and the filament-color swells
+            // still play on top of it once a minute
+            float p = constrain(printerVariables.percent, 0, 100) / 100.0f;
+            const COLOR &f = printerConfig.finishColor;
+            base.r = (short)(base.r + (f.r - base.r) * p);
+            base.g = (short)(base.g + (f.g - base.g) * p);
+            base.b = (short)(base.b + (f.b - base.b) * p);
+            base.ww = (short)(base.ww + (f.ww - base.ww) * p);
+            base.cw = (short)(base.cw + (f.cw - base.cw) * p);
+            ledSetProgressTarget(fil);
+            showFx(FX_ACCENT, base);
+        }
+        else if (printerConfig.progressFx)
         {
             ledSetProgressTarget(printerConfig.finishColor);
             showFx(FX_PROGRESS, base);
         }
-        else if (useFilament && !(printerConfig.timelapseSteady && printerVariables.timelapse))
+        else if (accent)
         {
             // Normal light, with a short filament-color swell once a minute. Skipped while a
             // timelapse records with "steady for timelapse" on, so frames don't change color.
@@ -1470,6 +1485,16 @@ void ledsloop()
     {
         lastAlmostCheck = millis();
         if (almostDoneBlend() > 0.0f)
+            updateleds();
+    }
+
+    // Progress glow + filament color together: the base color is worked out from the percentage,
+    // so re-apply it as the print advances
+    static int lastPct = -1;
+    if (printerConfig.progressFx && printerConfig.filamentColorFx && printerVariables.percent != lastPct)
+    {
+        lastPct = printerVariables.percent;
+        if (printerVariables.gcodeState == "RUNNING" && printerVariables.stage == 0)
             updateleds();
     }
 
