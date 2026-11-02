@@ -15,6 +15,29 @@ unsigned long restartRequestTime = 0;
 
 int wifi_reconnect_count = 0;
 
+// Boot watchdog: after an update the controller once got stuck on blue (joined Wi-Fi, but start-up
+// never finished) until it was unplugged. If start-up hasn't finished 90 s after Wi-Fi connects,
+// restart and try again - the same thing unplugging it does.
+#ifdef ESP_PLATFORM
+#include "esp_timer.h"
+static void bootWatchdogFired(void *)
+{
+    if (!globalVariables.started)
+        esp_restart();
+}
+#endif
+void armBootWatchdog()
+{
+#ifdef ESP_PLATFORM
+    static esp_timer_handle_t t = nullptr;
+    esp_timer_create_args_t args = {};
+    args.callback = &bootWatchdogFired;
+    args.name = "bootWatchdog";
+    if (!t && esp_timer_create(&args, &t) == ESP_OK)
+        esp_timer_start_once(t, 90ULL * 1000000ULL);
+#endif
+}
+
 void defaultcolors()
 {
     LogSerial.println(F("Setting default customisable colors"));
@@ -87,6 +110,7 @@ void setup()
     else
     {
         Serial.println(F("[WiFiManager] connected. Starting webUI."));
+        armBootWatchdog();
         // Modem sleep adds 100+ ms latency spikes, which is a common reason the printer
         // drops the MQTT client. The controller is mains powered, so keep the radio awake.
         WiFi.setSleep(false);
