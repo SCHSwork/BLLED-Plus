@@ -263,12 +263,31 @@ void ledSetNextFx(uint8_t fx)
 }
 
 // Color the FX_PROGRESS effect blends towards as the print advances.
+// White always comes from the strip's own white LEDs. A color like #FFFFFF, or the white part of a
+// pastel (#FFC0C0 = white + red), would otherwise be mixed from red, green and blue, which looks
+// different from the real white and shifts with the color balance. The shared part of R, G and B
+// moves to the warm + cool white LEDs; what's left over stays as color.
+void extractWhite(int &r, int &g, int &b, int &ww, int &cw)
+{
+    int w = min(r, min(g, b));
+    if (w <= 0)
+        return;
+    r -= w;
+    g -= w;
+    b -= w;
+    ww = min(255, ww + w);
+    cw = min(255, cw + w);
+}
+
 void ledSetProgressTarget(const COLOR &c)
 {
     float b = (float)effectiveBrightness() / 100.0f;
+    int r = constrain(c.r, 0, 255), g = constrain(c.g, 0, 255), bl = constrain(c.b, 0, 255);
+    int ww = constrain(c.ww, 0, 255), cw = constrain(c.cw, 0, 255);
+    extractWhite(r, g, bl, ww, cw);
     float alt[5] = {
-        toPerceptual((int)(c.r * b * calGain(0))), toPerceptual((int)(c.g * b * calGain(1))), toPerceptual((int)(c.b * b * calGain(2))),
-        toPerceptual((int)(c.ww * b)), toPerceptual((int)(c.cw * b))};
+        toPerceptual((int)(r * b * calGain(0))), toPerceptual((int)(g * b * calGain(1))), toPerceptual((int)(bl * b * calGain(2))),
+        toPerceptual((int)(ww * b)), toPerceptual((int)(cw * b))};
     portENTER_CRITICAL(&ledMux);
     memcpy(ledAlt, alt, sizeof(ledAlt));
     portEXIT_CRITICAL(&ledMux);
@@ -292,6 +311,13 @@ float calGain(int ch)
 void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = -1)
 {
     float brightness = (float)effectiveBrightness() / 100.0;
+
+    targetRed = constrain(targetRed, 0, 255);
+    targetGreen = constrain(targetGreen, 0, 255);
+    targetBlue = constrain(targetBlue, 0, 255);
+    targetWarm = constrain(targetWarm, 0, 255);
+    targetCold = constrain(targetCold, 0, 255);
+    extractWhite(targetRed, targetGreen, targetBlue, targetWarm, targetCold);
 
     int brightenedRed = (int)(constrain(targetRed, 0, 255) * brightness * calGain(0));
     int brightenedGreen = (int)(constrain(targetGreen, 0, 255) * brightness * calGain(1));
