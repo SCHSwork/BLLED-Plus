@@ -203,6 +203,9 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     doc["almostDoneMins"] = printerConfig.almostDoneMins;
     doc["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    doc["calR"] = printerConfig.calR;
+    doc["calG"] = printerConfig.calG;
+    doc["calB"] = printerConfig.calB;
     doc["needsYouEnabled"] = printerConfig.needsYouEnabled;
     doc["needsYouRGB"] = printerConfig.needsYouRGB.RGBhex;
     doc["needsYouWW"] = printerConfig.needsYouRGB.ww;
@@ -372,6 +375,9 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.almostDoneEnabled = request->hasParam("almostDoneEnabled", true);
     printerConfig.almostDoneMins = constrain(getSafeParamInt(request, "almostDoneMins", printerConfig.almostDoneMins), 1, 60);
     printerConfig.firstLayerSpotlight = request->hasParam("firstLayerSpotlight", true);
+    printerConfig.calR = constrain(getSafeParamInt(request, "calR", printerConfig.calR), 10, 100);
+    printerConfig.calG = constrain(getSafeParamInt(request, "calG", printerConfig.calG), 10, 100);
+    printerConfig.calB = constrain(getSafeParamInt(request, "calB", printerConfig.calB), 10, 100);
     printerConfig.needsYouEnabled = request->hasParam("needsYouEnabled", true);
     if (request->hasParam("needsYouRGB", true))
         printerConfig.needsYouRGB = hex2rgb(getSafeParamValue(request, "needsYouRGB").c_str(), getSafeParamInt(request, "needsYouWW"), getSafeParamInt(request, "needsYouCW"));
@@ -711,6 +717,8 @@ void handlePreview(AsyncWebServerRequest *request)
     };
     COLOR c;
     String what = param("special", "");
+    if (what != "calibrate")
+        calTrying = false; // other previews use the saved balance
     if (what == "filament")
     {
         // The real active spool's color, or a sample purple when none is loaded
@@ -721,6 +729,17 @@ void handlePreview(AsyncWebServerRequest *request)
     else if (what == "celebrate")
     {
         startPreview(printerConfig.finishColor, printerConfig.finishFx, 8000, true);
+    }
+    else if (what == "calibrate")
+    {
+        // Try a color balance on the strip: the sliders send their values with the test color.
+        // Save keeps them; reloading the page or restarting without saving drops them.
+        calTry[0] = constrain((int)param("calR", "100").toInt(), 10, 100);
+        calTry[1] = constrain((int)param("calG", "100").toInt(), 10, 100);
+        calTry[2] = constrain((int)param("calB", "100").toInt(), 10, 100);
+        calTrying = true;
+        c = hex2rgb(param("rgb", "#FF8000"));
+        startPreview(c, FX_SOLID, 20000, false);
     }
     else if (what == "heat")
     {

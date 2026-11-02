@@ -226,6 +226,7 @@ bool filamentLedColor(COLOR &out)
 }
 
 COLOR heatColorAt(float p); // heat-up colors, defined further down
+float calGain(int ch);      // color balance, defined further down
 
 COLOR hex2rgb(String hex, short ww_value = 0, short cw_value = 0)
 {
@@ -266,20 +267,35 @@ void ledSetProgressTarget(const COLOR &c)
 {
     float b = (float)effectiveBrightness() / 100.0f;
     float alt[5] = {
-        toPerceptual((int)(c.r * b)), toPerceptual((int)(c.g * b)), toPerceptual((int)(c.b * b)),
+        toPerceptual((int)(c.r * b * calGain(0))), toPerceptual((int)(c.g * b * calGain(1))), toPerceptual((int)(c.b * b * calGain(2))),
         toPerceptual((int)(c.ww * b)), toPerceptual((int)(c.cw * b))};
     portENTER_CRITICAL(&ledMux);
     memcpy(ledAlt, alt, sizeof(ledAlt));
     portEXIT_CRITICAL(&ledMux);
 }
 
+// Color balance: LED strips differ in how strong each color is (green is often much brighter than
+// red), which shifts mixed colors - orange looks yellow, purple looks blue. These scale each RGB
+// channel so colors look the way they're picked. White LEDs aren't affected.
+bool previewActive();
+int calTry[3] = {100, 100, 100}; // balance being tried from the settings page (not saved yet)
+bool calTrying = false;          // ...used only while that preview is showing
+
+float calGain(int ch)
+{
+    int v = ch == 0 ? printerConfig.calR : ch == 1 ? printerConfig.calG : printerConfig.calB;
+    if (calTrying && previewActive())
+        v = calTry[ch];
+    return constrain(v, 10, 100) / 100.0f;
+}
+
 void tweenToColor(int targetRed, int targetGreen, int targetBlue, int targetWarm, int targetCold, int duration = -1)
 {
     float brightness = (float)effectiveBrightness() / 100.0;
 
-    int brightenedRed = (int)(constrain(targetRed, 0, 255) * brightness);
-    int brightenedGreen = (int)(constrain(targetGreen, 0, 255) * brightness);
-    int brightenedBlue = (int)(constrain(targetBlue, 0, 255) * brightness);
+    int brightenedRed = (int)(constrain(targetRed, 0, 255) * brightness * calGain(0));
+    int brightenedGreen = (int)(constrain(targetGreen, 0, 255) * brightness * calGain(1));
+    int brightenedBlue = (int)(constrain(targetBlue, 0, 255) * brightness * calGain(2));
     int brightenedWarm = (int)(constrain(targetWarm, 0, 255) * brightness);
     int brightenedCold = (int)(constrain(targetCold, 0, 255) * brightness);
 
@@ -429,9 +445,9 @@ static void ledRenderFrame()
     {
         COLOR h = heatColorAt((float)(now - fadeStart) / 7000.0f);
         float k = (float)effectiveBrightness() / 100.0f;
-        out[0] = toPerceptual((int)(h.r * k));
-        out[1] = toPerceptual((int)(h.g * k));
-        out[2] = toPerceptual((int)(h.b * k));
+        out[0] = toPerceptual((int)(h.r * k * calGain(0)));
+        out[1] = toPerceptual((int)(h.g * k * calGain(1)));
+        out[2] = toPerceptual((int)(h.b * k * calGain(2)));
         out[3] = 0;
         out[4] = 0;
         break;
@@ -442,7 +458,10 @@ static void ledRenderFrame()
         float rgb[3];
         hsvToPerceptual((float)(now % 12000) * 360.0f / 12000.0f, 1.0f, v, rgb);
         for (int i = 0; i < 3; i++)
+        {
+            rgb[i] *= powf(calGain(i), 1.0f / LED_GAMMA); // gain applies to light, rgb is perceptual
             out[i] = from[i] + (rgb[i] - from[i]) * ease;
+        }
         out[3] = from[3] * (1.0f - ease);
         out[4] = from[4] * (1.0f - ease);
         break;

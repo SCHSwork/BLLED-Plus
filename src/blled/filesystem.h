@@ -140,6 +140,9 @@ void saveFileSystem()
     json["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     json["almostDoneMins"] = printerConfig.almostDoneMins;
     json["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    json["calR"] = printerConfig.calR;
+    json["calG"] = printerConfig.calG;
+    json["calB"] = printerConfig.calB;
     json["colorsV2"] = true;
     json["needsYouEnabled"] = printerConfig.needsYouEnabled;
     json["needsYouRGB"] = printerConfig.needsYouRGB.RGBhex;
@@ -286,6 +289,9 @@ void loadFileSystem()
         printerConfig.almostDoneEnabled = json["almostDoneEnabled"] | false;
         printerConfig.almostDoneMins = constrain((int)(json["almostDoneMins"] | 5), 1, 60);
         printerConfig.firstLayerSpotlight = json["firstLayerSpotlight"] | true;
+        printerConfig.calR = constrain((int)(json["calR"] | 100), 10, 100);
+        printerConfig.calG = constrain((int)(json["calG"] | 100), 10, 100);
+        printerConfig.calB = constrain((int)(json["calB"] | 100), 10, 100);
         printerConfig.needsYouEnabled = json["needsYouEnabled"] | true;
         printerConfig.needsYouRGB = hex2rgb(json["needsYouRGB"] | "#FF7A00", json["needsYouWW"] | 0, json["needsYouCW"] | 0);
         printerConfig.amsErrorRGB = hex2rgb(json["amsErrorRGB"] | "#9000FF", json["amsErrorWW"] | 0, json["amsErrorCW"] | 0);

@@ -168,6 +168,7 @@ extern "C"
         bool doorWorkLight = false;     // Bright white while the door is open
         bool almostDoneEnabled = false; // Shift toward the finish color in the last minutes of a print
         int almostDoneMins = 5;
+        int calR = 100, calG = 100, calB = 100; // color balance: strength of each RGB channel, %
         bool firstLayerSpotlight = true; // Full-brightness white for the first layer (never during lidar scans)
         bool needsYouEnabled = true;    // Paused and waiting on you (not paused by you): its own color
         COLOR needsYouRGB;

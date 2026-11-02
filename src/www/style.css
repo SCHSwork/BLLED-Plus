@@ -575,3 +575,15 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .row input[type="time"] { font-size: 14px; padding: 7px 6px; }
 .mini { width: auto; min-width: 78px; margin: 0; padding: 6px 12px; font-size: 13px; flex: none; }
 .lamp-edit .mini { justify-self: start; }
+
+/* Color balance test swatches */
+.cal-tests { flex-wrap: wrap; gap: 8px; }
+.cal-test {
+    width: auto; flex: 1 1 auto; margin: 0; padding: 8px 10px 8px 30px; font-size: 13px; position: relative;
+    background: var(--field, transparent); color: inherit; border: 1px solid var(--ring); border-radius: 999px;
+}
+.cal-test::before {
+    content: ""; position: absolute; left: 10px; top: 50%; width: 12px; height: 12px; margin-top: -6px;
+    border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
+}
+.cal-test[aria-pressed="true"] { border-color: currentColor; font-weight: 600; }

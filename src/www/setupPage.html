@@ -94,6 +94,37 @@
                 </div>
             </div>
 
+            <div class="group" id="calGroup">
+                <h2>Color balance</h2>
+                <p class="hint">LED strips aren't equally strong in every color, so a picked orange can come out yellow. Pick a test color, then turn down whichever color is too strong until the strip matches the swatch. White light isn't affected.</p>
+                <div class="row cal-tests" role="group" aria-label="Test color">
+                    <button type="button" class="cal-test" data-rgb="#FF8000" style="--sw:#FF8000">Orange</button>
+                    <button type="button" class="cal-test" data-rgb="#FFFF00" style="--sw:#FFFF00">Yellow</button>
+                    <button type="button" class="cal-test" data-rgb="#8000FF" style="--sw:#8000FF">Purple</button>
+                    <button type="button" class="cal-test" data-rgb="#FF0090" style="--sw:#FF0090">Pink</button>
+                    <button type="button" class="cal-test" data-rgb="#FFFFFF" style="--sw:#FFFFFF">White</button>
+                </div>
+                <div class="row">
+                    <label for="calR" class="txt"><b>Red</b></label>
+                    <input type="range" id="calR" name="calR" min="10" max="100" value="100" class="cal-slider" style="flex:1.2">
+                    <output for="calR" class="unit">100%</output>
+                </div>
+                <div class="row">
+                    <label for="calG" class="txt"><b>Green</b></label>
+                    <input type="range" id="calG" name="calG" min="10" max="100" value="100" class="cal-slider" style="flex:1.2">
+                    <output for="calG" class="unit">100%</output>
+                </div>
+                <div class="row">
+                    <label for="calB" class="txt"><b>Blue</b></label>
+                    <input type="range" id="calB" name="calB" min="10" max="100" value="100" class="cal-slider" style="flex:1.2">
+                    <output for="calB" class="unit">100%</output>
+                </div>
+                <div class="row">
+                    <span class="txt"><small id="calNote">Changes show on the strip right away. Save to keep them.</small></span>
+                    <button type="button" class="ghost mini" id="calReset">Reset</button>
+                </div>
+            </div>
+
             <div class="group">
                 <h2>When nothing is happening</h2>
                 <div class="row">
@@ -432,6 +463,31 @@
         $('fadeMs').addEventListener('input', fadeOut);
         const quietOut = () => $('quietOut').textContent = +$('quietBrightness').value === 0 ? 'Off' : $('quietBrightness').value + '%';
         $('quietBrightness').addEventListener('input', quietOut);
+        // ---- Color balance ----
+        let calColor = '#FF8000', calTimer;
+        const calOut = () => document.querySelectorAll('.cal-slider').forEach(r => r.nextElementSibling.textContent = r.value + '%');
+        async function calSend() {
+            try {
+                const r = await fetch('/api/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-BLLED': '1' },
+                    body: new URLSearchParams({ special: 'calibrate', rgb: calColor, calR: $('calR').value, calG: $('calG').value, calB: $('calB').value })
+                });
+                if (!r.ok) throw new Error((await r.text()) || r.status);
+            } catch (e) { toast('Couldn\u2019t show it on the strip: ' + e.message, true); }
+        }
+        const calSoon = () => { clearTimeout(calTimer); calTimer = setTimeout(calSend, 150); };
+        document.querySelectorAll('.cal-slider').forEach(r => r.addEventListener('input', () => { calOut(); calSoon(); }));
+        document.querySelectorAll('.cal-test').forEach(b => b.addEventListener('click', () => {
+            calColor = b.dataset.rgb;
+            document.querySelectorAll('.cal-test').forEach(x => x.setAttribute('aria-pressed', x === b));
+            calSend();
+        }));
+        $('calReset').addEventListener('click', () => {
+            ['calR', 'calG', 'calB'].forEach(id => $(id).value = 100);
+            calOut(); calSend();
+            form.dispatchEvent(new Event('input', { bubbles: true }));
+        });
         const idleDimOut = () => $('idleDimOut').textContent = $('idleDimLevel').value + '%';
         $('idleDimLevel').addEventListener('input', idleDimOut);
         $('brightnessslider').addEventListener('input', e => $('brightnesssliderDisplay').textContent = e.target.value + '%');
@@ -529,6 +585,8 @@
                 $('fadeMs').value = num(c.fadeMs, 600);
                 $('coolDownTemp').value = num(c.coolDownTemp, 35);
                 $('almostDoneMins').value = num(c.almostDoneMins, 5);
+                $('calR').value = num(c.calR, 100); $('calG').value = num(c.calG, 100); $('calB').value = num(c.calB, 100);
+                calOut();
                 $('idleDimLevel').value = num(c.idleDimLevel, 15);
                 $('idleOffMins').value = num(c.idleOffMins, 60);
                 idleDimOut();
