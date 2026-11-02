@@ -618,25 +618,41 @@ bool heatGlowActive()
     return heating && !printerVariables.coolWaiting;
 }
 
-// The heat-up color for progress p (0 = cold, 1 = at temperature): an ember warming up. Deep red
-// when cold, through red-orange, to bright orange at temperature. Stays in the red-orange range
-// the whole way (no blue, purple or pink), and gets a little brighter as it heats.
+// The heat-up color for progress p (0 = cold, 1 = at temperature): blue fades down, then orange
+// fades up. Mixing blue and orange directly gives greys and whites, and going around the color
+// wheel passes through pink one way and green the other, so instead the change happens while
+// both are dim: blue 100% -> 30% -> out, then orange in -> 30% -> 100%.
 COLOR heatColorAt(float p)
 {
     p = constrain(p, 0.0f, 1.0f);
-    float v = 0.65f + 0.35f * p;          // brightness: 65% -> 100%
-    float g = 106.0f * p;                 // green: 0 (pure red) -> 106 (orange, #FF6A00)
+    const float lo = 0.30f, w = 0.02f; // dimmest point, and half-width of the hand-over
+    float blue = 0.0f, orange = 0.0f;
+    if (p < 0.5f - w)
+        blue = 1.0f - (1.0f - lo) * p / (0.5f - w);
+    else if (p > 0.5f + w)
+        orange = lo + (1.0f - lo) * (p - 0.5f - w) / (0.5f - w);
+    else
+    {
+        // Blue finishes fading out before orange starts, so the two never mix into a pinkish color
+        float t = (p - (0.5f - w)) / (2.0f * w); // 0..1 across the hand-over
+        // (down to a faint 6%, never fully dark, so it doesn't look like the light went off)
+        const float faint = 0.06f;
+        if (t < 0.5f)
+            blue = lo - (lo - faint) * 2.0f * t;
+        else
+            orange = faint + (lo - faint) * (2.0f * t - 1.0f);
+    }
     COLOR c;
-    c.r = (short)(255.0f * v + 0.5f);
-    c.g = (short)(g * v + 0.5f);
-    c.b = 0;
+    c.r = (short)(255.0f * orange + 0.5f);
+    c.g = (short)(64.0f * blue + 106.0f * orange + 0.5f);
+    c.b = (short)(255.0f * blue + 0.5f);
     c.ww = 0;
     c.cw = 0;
     snprintf(c.RGBhex, sizeof(c.RGBhex), "#%02X%02X%02X", c.r, c.g, c.b);
     return c;
 }
 
-// Heat-up glow: deep red -> bright orange as the heating parts approach their targets
+// Heat-up glow: blue -> orange as the heating parts approach their targets
 COLOR heatGlowColor()
 {
     float sum = 0;
