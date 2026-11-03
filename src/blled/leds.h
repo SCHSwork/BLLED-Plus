@@ -184,8 +184,39 @@ bool filamentSwitching()
     return st == 4 || st == 22 || st == 24; // changing / unloading / loading filament
 }
 
+// H2 series slot code (unit << 8 | slot) -> that spool's color, "" if unknown or none
+const char *slotCodeHex(int code)
+{
+    int unit = (code >> 8) & 0xFF, slot = code & 0xFF;
+    if (code < 0 || code == 0xFFFF || slot == 0xFF)
+        return "";
+    if (unit < 4 && slot < 4)
+        return printerVariables.trayColor[unit * 4 + slot];
+    if (unit >= 128 && unit < 136)
+        return printerVariables.htColor[unit - 128];
+    if (unit == 255 || unit == 254)
+    {
+        // External spool; older-style reports only have vt_tray
+        const char *v = printerVariables.virColor[255 - unit];
+        return strlen(v) ? v : printerVariables.extColor;
+    }
+    return "";
+}
+
 const char *activeFilamentHex()
 {
+    if (printerVariables.perNozzleSlots)
+    {
+        // H2 series: tray_now isn't the active slot there; each nozzle reports its own
+        int n = printerVariables.activeNozzle;
+        if (filamentSwitching())
+        {
+            const char *t = slotCodeHex(printerVariables.nozzleTar[n]);
+            if (strlen(t))
+                return t;
+        }
+        return slotCodeHex(printerVariables.nozzleNow[n]);
+    }
     int n = printerVariables.trayNow;
     // While switching, show the spool being loaded (tray_now is often "none" mid-swap)
     int tar = printerVariables.trayTar;

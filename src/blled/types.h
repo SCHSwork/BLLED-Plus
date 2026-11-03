@@ -59,6 +59,13 @@ extern "C"
         char extColor[7] = "";
         int trayNow = 255;                // active slot: 0-15 AMS, 254 external spool, 255 none
         int trayTar = 255;                // slot the AMS is switching to (same numbering)
+        // H2 series (H2D / H2C / H2S): the active slot is reported per nozzle instead of in tray_now
+        bool perNozzleSlots = false;      // seen device.extruder.info[].snow
+        int activeNozzle = 0;
+        int nozzleNow[2] = {0xFFFF, 0xFFFF}; // unit << 8 | slot, per nozzle
+        int nozzleTar[2] = {0xFFFF, 0xFFFF};
+        char htColor[8][7] = {};          // AMS HT units (ids 128-135, one slot each)
+        char virColor[2][7] = {};         // H2 external spools: [0] = id 255, [1] = id 254
 
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools

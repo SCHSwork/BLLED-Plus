@@ -282,6 +282,13 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["ams"]["ams"][0]["tray"][0]["id"] = true;
     filter["print"]["ams"]["ams"][0]["tray"][0]["tray_color"] = true;
     filter["print"]["vt_tray"]["tray_color"] = true;
+    // H2 series: active slot per nozzle, and the external spools
+    filter["print"]["device"]["extruder"]["state"] = true;
+    filter["print"]["device"]["extruder"]["info"][0]["id"] = true;
+    filter["print"]["device"]["extruder"]["info"][0]["snow"] = true;
+    filter["print"]["device"]["extruder"]["info"][0]["star"] = true;
+    filter["print"]["vir_slot"][0]["id"] = true;
+    filter["print"]["vir_slot"][0]["tray_color"] = true;
     filter["print"]["ipcam"]["timelapse"] = true;
     filter["system"]["command"] = true;
     filter["system"]["led_mode"] = true;
@@ -387,6 +394,13 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             for (JsonObject unit : ams["ams"].as<JsonArray>())
             {
                 int unitId = unit["id"].as<String>().toInt();
+                if (unitId >= 128 && unitId < 136)
+                {
+                    // AMS HT: one slot
+                    for (JsonObject tray : unit["tray"].as<JsonArray>())
+                        setHex(printerVariables.htColor[unitId - 128], tray["tray_color"] | "");
+                    continue;
+                }
                 if (unitId < 0 || unitId > 3)
                     continue; // only standard AMS units map onto tray_now 0-15
                 for (JsonObject tray : unit["tray"].as<JsonArray>())
@@ -409,6 +423,33 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
         if (!print["vt_tray"].isNull())
             setHex(printerVariables.extColor, print["vt_tray"]["tray_color"] | "");
+
+        // H2 series: which nozzle is active, and which slot feeds each nozzle
+        JsonObject ext = print["device"]["extruder"];
+        if (!ext.isNull())
+        {
+            if (!ext["state"].isNull())
+                printerVariables.activeNozzle = ((ext["state"].as<int>() >> 4) & 0xF) ? 1 : 0;
+            for (JsonObject e : ext["info"].as<JsonArray>())
+            {
+                int id = e["id"] | -1;
+                if (id < 0 || id > 1)
+                    continue;
+                if (!e["snow"].isNull())
+                {
+                    printerVariables.nozzleNow[id] = e["snow"].as<int>();
+                    printerVariables.perNozzleSlots = true;
+                }
+                if (!e["star"].isNull())
+                    printerVariables.nozzleTar[id] = e["star"].as<int>();
+            }
+        }
+        for (JsonObject v : print["vir_slot"].as<JsonArray>())
+        {
+            int id = v["id"].as<String>().toInt();
+            if (id == 255 || id == 254)
+                setHex(printerVariables.virColor[255 - id], v["tray_color"] | "");
+        }
 
         if (strcmp(beforeHex, activeFilamentHex()) != 0)
         {
