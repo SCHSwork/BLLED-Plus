@@ -2,6 +2,7 @@
 bool shouldRestart = false;
 unsigned long restartRequestTime = 0;
 
+
 // Why the controller last restarted, for the status page. The note survives a soft restart (it
 // lives in memory that isn't cleared on reset) but not a power cut, which is fine: then the
 // chip itself reports "power on".
@@ -265,6 +266,12 @@ void loop()
         scanNetwork();                       // Sets the MAC address for following connection attempt
         printerConfig.rescanWiFiNetwork = false;
         updateleds();
+    }
+    // An upload that stopped arriving (closed page, lost Wi-Fi) shouldn't keep things paused
+    if (otaActive && !shouldRestart && millis() - otaLastData > 20000)
+    {
+        LogSerial.println(F("[OTA] Upload stopped arriving - resuming normal work"));
+        otaActive = false;
     }
     if (shouldRestart && millis() - restartRequestTime > 3000)
     {

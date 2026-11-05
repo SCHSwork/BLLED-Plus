@@ -983,7 +983,9 @@ static void webHealthTask(void *)
     vTaskDelay(pdMS_TO_TICKS(90000)); // let everything settle after boot
     for (;;)
     {
-        if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
+        if (otaActive)
+            fails = 0; // a long upload keeps the page busy; that isn't a freeze
+        else if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
         {
             if (webCheckOnce())
             {
@@ -1110,6 +1112,7 @@ void setupWebserver()
             String why = Update.hasError() ? String(Update.errorString()) : String("the file was incomplete");
             LogSerial.printf("[OTA] Failed: %s\n", why.c_str());
             Update.abort();
+            otaActive = false;
             return request->send(500, "text/plain", "Update failed: " + why + ". The controller is still on its current version - try again.");
         }
         request->send(200, "text/plain", "OK");
@@ -1126,6 +1129,7 @@ void setupWebserver()
                 return;
             }
             LogSerial.printf("[OTA] Start: %s\n", filename.c_str());
+            otaActive = true;
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                 Update.printError(LogSerial);
             }
@@ -1134,6 +1138,7 @@ void setupWebserver()
             return;
         }
 
+        otaLastData = millis();
         if (Update.write(data, len) != len) {
             Update.printError(LogSerial);
         }

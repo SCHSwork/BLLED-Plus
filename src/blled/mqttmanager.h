@@ -153,6 +153,12 @@ void mqttTask(void *parameter)
 
     while (true)
     {
+        if (otaActive)
+        {
+            // Firmware update uploading: stay out of its way (no TLS work, no parsing)
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
         if (WiFi.status() != WL_CONNECTED || WiFi.getMode() != WIFI_MODE_STA)
         {
             if (mqttClient.connected())

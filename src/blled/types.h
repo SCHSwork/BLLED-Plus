@@ -1,4 +1,9 @@
 #ifndef _TYPES
+
+// A firmware update is uploading: the printer connection and the settings-page self-check pause
+// so the controller can give the upload its full attention
+inline volatile bool otaActive = false;
+inline volatile unsigned long otaLastData = 0;
 #define _TYPES
 
 #ifdef __cplusplus
