@@ -266,7 +266,7 @@ void loop()
         printerConfig.rescanWiFiNetwork = false;
         updateleds();
     }
-    if (shouldRestart && millis() - restartRequestTime > 1500)
+    if (shouldRestart && millis() - restartRequestTime > 3000)
     {
         LogSerial.println(F("[WiFiSetup] Restarting now..."));
         if (restartNoteMagic != 0xB11ED001)

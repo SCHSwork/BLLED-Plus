@@ -72,6 +72,43 @@
 
         function _(el) { return document.getElementById(el); }
 
+        // The version before the update, so the page can tell whether the new one actually installed
+        let fwBefore = null, uploadedAll = false;
+        fetch('/api/status').then(r => r.json()).then(d => fwBefore = d.fw).catch(() => {});
+
+        // After an upload: wait for the controller to come back and report which version it runs.
+        // This also catches an upload that went through but whose reply got lost in the restart.
+        function waitForRestart(afterError) {
+            let attempts = 0;
+            const interval = setInterval(() => {
+                fetch('/api/status', { cache: 'no-store' })
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.uptime > 60 && attempts < 3) return; // hasn't restarted yet
+                        clearInterval(interval);
+                        if (afterError && d.uptime > 60) {
+                            _('status').textContent = "Upload failed: the connection dropped partway. Nothing changed (still on " + d.fw + ") - try again.";
+                            alertToast("error", "Firmware upload failed!");
+                        } else if (fwBefore && d.fw === fwBefore) {
+                            _('status').textContent = "Still on " + d.fw + ". The update didn't install - try again.";
+                            alertToast("error", "Update didn't install");
+                        } else {
+                            _('status').textContent = "Updated to " + d.fw + ".";
+                            alertToast("success", "Updated to " + d.fw);
+                            setTimeout(() => location.href = "/", 2500);
+                        }
+                    })
+                    .catch(() => {
+                        if (attempts >= 60) {
+                            clearInterval(interval);
+                            _('status').textContent = "The controller hasn't come back yet. Give it a minute, then open the status page.";
+                            alertToast("error", "Device did not come back online.");
+                        }
+                    });
+                attempts++;
+            }, 2000);
+        }
+
         function uploadFile() {
             var file = _("file1").files[0];
             var formdata = new FormData();
@@ -90,6 +127,7 @@
         function progressHandler(event) {
             var percent = Math.round((event.loaded / event.total) * 100);
             _("progressBar").value = percent;
+            if (percent >= 100) uploadedAll = true;
         }
 
         function completeHandler(event) {
@@ -100,28 +138,9 @@
                 alertToast("error", "Update failed");
                 return;
             }
-            _('status').textContent = "Upload complete. Rebooting...";
-            alertToast("success", "Firmware uploaded successfully!");
-
-            let attempts = 0;
-            let maxAttempts = 30;
-            const interval = setInterval(() => {
-                fetch("/")
-                    .then(response => {
-                        if (response.ok) {
-                            clearInterval(interval);
-                            alertToast("success", "Device is back online!");
-                            location.href = "/";
-                        }
-                    })
-                    .catch(() => {
-                        attempts++;
-                        if (attempts >= maxAttempts) {
-                            clearInterval(interval);
-                            alertToast("error", "Device did not come back online.");
-                        }
-                    });
-            }, 2000);
+            _('status').textContent = "Upload complete. Restarting...";
+            alertToast("success", "Firmware uploaded");
+            waitForRestart();
         }
 
         function startHandler(event) {
@@ -130,8 +149,10 @@
         }
 
         function errorHandler(event) {
-            _('status').textContent = "Upload failed.";
-            alertToast("error", "Firmware upload failed!");
+            // The connection dropped. That can also happen when the update went through and the
+            // controller restarted before its reply arrived, so check which version it's running.
+            _('status').textContent = "The connection dropped. Checking whether the update installed...";
+            waitForRestart(true);
         }
 
         function abortHandler(event) {
