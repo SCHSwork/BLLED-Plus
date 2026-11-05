@@ -13,8 +13,8 @@ Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It start
 Works from the official BLLED firmware or an older BLLED Plus. Your settings carry over.
 
 1. Download the newest `BLLC_V*.bin.ota` from [Releases](../../releases). On a phone, save it to your Downloads.
-2. On the same Wi-Fi as the controller, open **http://blled.local/update**.
-   If that doesn't load, use the controller's number instead (for example `http://192.168.1.42/update`). Your router's app lists it under connected devices.
+2. On the same Wi-Fi as the controller, open **http://blled.local/fwupdate**, or open **http://blled.local** and tap **Update firmware** at the bottom of the settings page. (From 2.7.3 on, `/update` works too.)
+   If blled.local doesn't load, use the controller's number instead (for example `http://192.168.1.42/fwupdate`). Your router's app lists it under connected devices.
 3. Choose the `.bin.ota` file and upload it. Don't unplug anything until it says it's done.
 4. Wait about 30 seconds for the restart, then open **http://blled.local/status**. The firmware version is at the bottom.
 

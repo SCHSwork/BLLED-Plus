@@ -1031,6 +1031,7 @@ void setupWebserver()
     webServer.on("/api/quick", HTTP_POST, handleQuick);
     webServer.on("/api/preview", HTTP_POST, handlePreview);
     webServer.on("/fwupdate", HTTP_GET, handleUpdatePage);
+    webServer.on("/update", HTTP_GET, handleUpdatePage); // the address people expect; uploads POST here
     webServer.on("/getConfig", HTTP_GET, handleGetConfig);
     webServer.on("/submitConfig", HTTP_POST, handleSubmitConfig);
     webServer.on("/blled.svg", HTTP_GET, handleGetIcon);
@@ -1091,6 +1092,13 @@ void setupWebserver()
         }
         if (!fromOwnPage(request)) {
             return refuseForeign(request);
+        }
+        // Report a failed update instead of restarting into the old firmware as if it worked
+        if (Update.hasError() || !Update.isFinished()) {
+            String why = Update.hasError() ? String(Update.errorString()) : String("the file was incomplete");
+            LogSerial.printf("[OTA] Failed: %s\n", why.c_str());
+            Update.abort();
+            return request->send(500, "text/plain", "Update failed: " + why + ". The controller is still on its current version - try again.");
         }
         request->send(200, "text/plain", "OK");
         LogSerial.println(F("OTA Upload done. Marking for restart."));

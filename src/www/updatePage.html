@@ -94,6 +94,12 @@
 
         function completeHandler(event) {
             _("progressBar").value = 0;
+            const x = event.target;
+            if (x && x.status && x.status !== 200) {
+                _('status').textContent = x.responseText || ("Update failed (" + x.status + ").");
+                alertToast("error", "Update failed");
+                return;
+            }
             _('status').textContent = "Upload complete. Rebooting...";
             alertToast("success", "Firmware uploaded successfully!");
 
