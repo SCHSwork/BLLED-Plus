@@ -1,6 +1,45 @@
 #include <Arduino.h>
 bool shouldRestart = false;
 unsigned long restartRequestTime = 0;
+
+// Why the controller last restarted, for the status page. The note survives a soft restart (it
+// lives in memory that isn't cleared on reset) but not a power cut, which is fine: then the
+// chip itself reports "power on".
+#ifdef ESP_PLATFORM
+#include "esp_system.h"
+RTC_NOINIT_ATTR static char restartNote[40];
+RTC_NOINIT_ATTR static uint32_t restartNoteMagic;
+#else
+static char restartNote[40];
+static uint32_t restartNoteMagic;
+#endif
+String lastRestartWhy = "";
+void noteRestart(const char *why)
+{
+    strncpy(restartNote, why, sizeof(restartNote) - 1);
+    restartNote[sizeof(restartNote) - 1] = 0;
+    restartNoteMagic = 0xB11ED001;
+}
+static void readRestartReason()
+{
+    String note = (restartNoteMagic == 0xB11ED001) ? String(restartNote) : String("");
+    restartNoteMagic = 0;
+#ifdef ESP_PLATFORM
+    switch (esp_reset_reason())
+    {
+    case ESP_RST_POWERON: lastRestartWhy = "Power on"; note = ""; break;
+    case ESP_RST_SW: lastRestartWhy = note.length() ? note : String("Restarted by the firmware"); break;
+    case ESP_RST_PANIC: lastRestartWhy = "Crashed"; break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT: lastRestartWhy = "Froze (watchdog)"; break;
+    case ESP_RST_BROWNOUT: lastRestartWhy = "Power dipped (brownout)"; break;
+    default: lastRestartWhy = "Other (" + String((int)esp_reset_reason()) + ")"; break;
+    }
+#else
+    lastRestartWhy = note.length() ? note : String("Power on");
+#endif
+}
 #include "./blled/logSerial.h"
 #include "./blled/leds.h"
 #include "./blled/filesystem.h"
@@ -23,7 +62,10 @@ int wifi_reconnect_count = 0;
 static void bootWatchdogFired(void *)
 {
     if (!globalVariables.started)
+    {
+        noteRestart("Start-up got stuck");
         esp_restart();
+    }
 }
 #endif
 void armBootWatchdog()
@@ -69,6 +111,7 @@ void defaultcolors()
 
 void setup()
 {
+    readRestartReason();
     Serial.begin(115200);
     delay(100);
     Serial.println(F("Initializing"));
@@ -226,6 +269,8 @@ void loop()
     if (shouldRestart && millis() - restartRequestTime > 1500)
     {
         LogSerial.println(F("[WiFiSetup] Restarting now..."));
+        if (restartNoteMagic != 0xB11ED001)
+            noteRestart("Settings saved or update");
         ESP.restart();
     }
 }

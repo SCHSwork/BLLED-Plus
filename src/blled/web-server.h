@@ -551,6 +551,7 @@ void fillStatusJson(JsonDocument &doc)
     doc["wifi_rssi"] = WiFi.RSSI();
     doc["ip"] = WiFi.localIP().toString();
     doc["uptime"] = millis() / 1000;
+    doc["restartWhy"] = lastRestartWhy;
     doc["heap"] = ESP.getFreeHeap();
     doc["clients"] = ws.count();
 
@@ -988,6 +989,7 @@ static void webHealthTask(void *)
                 if (fails >= 3 && !printing && !shouldRestart)
                 {
                     LogSerial.println(F("[Web] Settings page is frozen - restarting the controller"));
+                    noteRestart("Settings page froze");
                     restartRequestTime = millis();
                     shouldRestart = true;
                 }
