@@ -181,6 +181,9 @@ int effectiveBrightness()
 // ---------------------------------------------------------------------------
 //  Filament color: the color the active AMS slot / external spool reports
 // ---------------------------------------------------------------------------
+bool isLidarStage(int st);  // defined further down
+COLOR heatColorAt(float p);
+
 bool filamentSwitching()
 {
     int st = printerVariables.stage;
@@ -239,6 +242,29 @@ bool nozzleSwapping()
     int st = printerVariables.stage;
     return st == 62 || st == 64 || // H2: hotend pick-and-place / preparing the hotend (Vortek)
            (printerVariables.nozzleSwapUntil && (int32_t)(printerVariables.nozzleSwapUntil - millis()) > 0);
+}
+
+// The nozzle in use: its own temperatures on H2 printers, the single nozzle elsewhere
+float activeNozzleTemp() { return printerVariables.perNozzleTemps ? printerVariables.nozTemp[printerVariables.activeNozzle] : printerVariables.nozzleTemp; }
+float activeNozzleTarget() { return printerVariables.perNozzleTemps ? printerVariables.nozTarget[printerVariables.activeNozzle] : printerVariables.nozzleTarget; }
+
+// Nozzle swap heat-up: after a hotend change (or switching nozzles), the heat-up glow follows the
+// new hotend as it comes up to temperature - quick on a Vortek hotend, so it sweeps blue to orange
+bool swapHeatActive()
+{
+    if (!printerConfig.heatGlowFx || !printerConfig.nozzleSwapFx)
+        return false;
+    bool window = nozzleSwapping() ||
+                  (printerVariables.swapHeatUntil && (int32_t)(printerVariables.swapHeatUntil - millis()) > 0);
+    float t = activeNozzleTemp(), target = activeNozzleTarget();
+    return window && target > 30 && t < target - 5 && printerVariables.gcodeState != "PAUSE" &&
+           !isLidarStage(printerVariables.stage);
+}
+
+COLOR swapHeatColor()
+{
+    float t = activeNozzleTemp(), target = activeNozzleTarget();
+    return heatColorAt((t - 25.0f) / max(1.0f, target - 25.0f));
 }
 
 const char *activeFilamentHex()
@@ -1194,6 +1220,15 @@ void updateleds()
         }
     }
 
+    // H2 series: a swapped-in hotend heating up shows the heat-up glow, sped up to match
+    if (printerVariables.online && swapHeatActive())
+    {
+        COLOR c = swapHeatColor();
+        tweenToColor(c, 600);
+        printLogs("Nozzle swap - new hotend heating", c);
+        return;
+    }
+
     // H2 series: swapping nozzles (Vortek hotend change, or switching between the two nozzles)
     if (printerVariables.online && printerConfig.nozzleSwapFx && nozzleSwapping())
     {
@@ -1679,6 +1714,23 @@ void ledsloop()
     if (idleDimActive && idleDimExpired())
     {
         idleDimActive = false;
+        updateleds();
+    }
+
+    // Nozzle swap heat-up: open a 90 s window when a swap starts, and follow the new hotend's
+    // temperature quickly (it can heat in seconds)
+    static bool swapWas = false;
+    bool swapNow = nozzleSwapping();
+    if (swapNow && !swapWas)
+        printerVariables.swapHeatUntil = millis() + 90000;
+    swapWas = swapNow;
+    static unsigned long lastSwapRefresh = 0;
+    static bool swapHeatWas = false;
+    bool swapHeatNow = swapHeatActive();
+    if ((swapHeatNow || swapHeatWas) && millis() - lastSwapRefresh > 400)
+    {
+        lastSwapRefresh = millis();
+        swapHeatWas = swapHeatNow;
         updateleds();
     }
 

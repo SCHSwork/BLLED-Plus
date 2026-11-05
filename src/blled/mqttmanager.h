@@ -287,6 +287,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["device"]["extruder"]["info"][0]["id"] = true;
     filter["print"]["device"]["extruder"]["info"][0]["snow"] = true;
     filter["print"]["device"]["extruder"]["info"][0]["star"] = true;
+    filter["print"]["device"]["extruder"]["info"][0]["temp"] = true;
     filter["print"]["vir_slot"][0]["id"] = true;
     filter["print"]["vir_slot"][0]["tray_color"] = true;
     filter["print"]["ipcam"]["timelapse"] = true;
@@ -453,6 +454,14 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
                 }
                 if (!e["star"].isNull())
                     printerVariables.nozzleTar[id] = e["star"].as<int>();
+                if (!e["temp"].isNull())
+                {
+                    // low 16 bits: current, high 16 bits: target
+                    uint32_t t = e["temp"].as<uint32_t>();
+                    printerVariables.nozTemp[id] = (float)(t & 0xFFFF);
+                    printerVariables.nozTarget[id] = (float)((t >> 16) & 0xFFFF);
+                    printerVariables.perNozzleTemps = true;
+                }
             }
         }
         for (JsonObject v : print["vir_slot"].as<JsonArray>())

@@ -67,6 +67,9 @@ extern "C"
         char htColor[8][7] = {};          // AMS HT units (ids 128-135, one slot each)
         char virColor[2][7] = {};         // H2 external spools: [0] = id 255, [1] = id 254
         unsigned long nozzleSwapUntil = 0; // show the nozzle swap until then (switched nozzles mid-print)
+        bool perNozzleTemps = false;      // H2: device.extruder.info[].temp seen
+        float nozTemp[2] = {0, 0}, nozTarget[2] = {0, 0};
+        unsigned long swapHeatUntil = 0;  // after a nozzle swap: show the new hotend heating up until then
 
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools
