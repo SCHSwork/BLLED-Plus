@@ -281,6 +281,16 @@
                     <button type="button" class="ghost mini" data-preview="filament">Preview</button>
                     <input type="checkbox" class="tog" id="filamentColorFx" name="filamentColorFx">
                 </label>
+                <label class="row sub" data-show-if="filamentColorFx">
+                    <span class="txt"><b>Count pulses for the AMS</b><small>While switching, the strip pulses once for AMS 1, twice for AMS 2, and so on, then pauses. An external spool glows steady.</small></span>
+                    <button type="button" class="ghost mini" data-preview="amscount">Preview</button>
+                    <input type="checkbox" class="tog" id="amsPulseCount" name="amsPulseCount">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>Show nozzle swaps</b><small>H2 printers: the strip breathes the nozzle-swap color while the printer changes hotends or switches nozzles.</small></span>
+                    <input type="checkbox" class="tog" id="nozzleSwapFx" name="nozzleSwapFx">
+                </label>
+                <div class="lamps" data-lamps="swap" data-show-if="nozzleSwapFx"></div>
                 <label class="row">
                     <span class="txt"><b>First-layer spotlight</b><small>Full-brightness white while the first layer goes down, so you and the camera can check it. Stays off while the lidar scans or inspects the layer, then back to normal from layer 2.</small></span>
                     <input type="checkbox" class="tog" id="firstLayerSpotlight" name="firstLayerSpotlight">
@@ -362,7 +372,8 @@
             stages: [['stage14', 'Cleaning the nozzle'], ['stage1', 'Bed leveling'], ['stage8', 'Calibrating extrusion'], ['stage9', 'Scanning the bed'], ['stage10', 'First-layer inspection']],
             paused: [['pause', 'Paused by you'], ['needsYou', 'Waiting for you'], ['firstlayer', 'First layer or spaghetti problem'], ['nozzleclog', 'Nozzle clog']],
             errors: [['filamentRunout', 'Filament ran out'], ['amsError', 'AMS problem'], ['frontCover', 'Front cover removed'], ['nozzleTemp', 'Nozzle temperature fault'], ['bedTemp', 'Bed temperature fault'], ['hmsSerious', 'Serious printer warning'], ['hmsFatal', 'Fatal printer error']],
-            wifi: [['wifi', 'Connecting to Wi-Fi']]
+            wifi: [['wifi', 'Connecting to Wi-Fi']],
+            swap: [['nozzleSwap', 'Swapping nozzles']]
         };
         const ALL_LAMPS = Object.values(LAMPS).flat();
 
@@ -449,7 +460,7 @@
             const row = b.closest('.lamp-row');
             const key = row.dataset.key;
             const [color, ww, cw] = row.querySelectorAll('.lamp-edit input');
-            const fx = key === 'needsYou' ? '1' : key === 'finish' ? fxOf('finishFx') : PAUSE_KEYS.includes(key) ? fxOf('pauseFx') : ERROR_KEYS.includes(key) ? fxOf('errorFx') : '0';
+            const fx = key === 'needsYou' || key === 'nozzleSwap' ? '1' : key === 'finish' ? fxOf('finishFx') : PAUSE_KEYS.includes(key) ? fxOf('pauseFx') : ERROR_KEYS.includes(key) ? fxOf('errorFx') : '0';
             preview({ rgb: color.value, ww: ww.value, cw: cw.value, fx }, b);
         });
 
@@ -564,6 +575,7 @@
                     debugingchange: c.debugingchange, mqttdebug: c.mqttdebug, p1Printer: c.p1Printer, doorSwitch: c.doorSwitch,
                     errorDetection: c.errordetection, progressFx: c.progressFx,
                     filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,
+                    amsPulseCount: !!c.amsPulseCount, nozzleSwapFx: c.nozzleSwapFx !== false,
                     timelapseSteady: c.timelapseSteady !== false, heatGlowFx: c.heatGlowFx, celebrateFx: c.celebrateFx,
                     coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight,
                     almostDoneEnabled: c.almostDoneEnabled, firstLayerSpotlight: c.firstLayerSpotlight !== false,

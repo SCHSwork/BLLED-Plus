@@ -66,6 +66,7 @@ extern "C"
         int nozzleTar[2] = {0xFFFF, 0xFFFF};
         char htColor[8][7] = {};          // AMS HT units (ids 128-135, one slot each)
         char virColor[2][7] = {};         // H2 external spools: [0] = id 255, [1] = id 254
+        unsigned long nozzleSwapUntil = 0; // show the nozzle swap until then (switched nozzles mid-print)
 
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools
@@ -175,6 +176,9 @@ extern "C"
         bool doorWorkLight = false;     // Bright white while the door is open
         bool almostDoneEnabled = false; // Shift toward the finish color in the last minutes of a print
         int almostDoneMins = 5;
+        bool amsPulseCount = false;     // while switching filament: 1 pulse for AMS 1, 2 for AMS 2...
+        bool nozzleSwapFx = true;       // H2 series: show nozzle / hotend swaps
+        COLOR nozzleSwapRGB;
         int calR = 100, calG = 100, calB = 100; // color balance: strength of each RGB channel, %
         bool firstLayerSpotlight = true; // Full-brightness white for the first layer (never during lidar scans)
         bool needsYouEnabled = true;    // Paused and waiting on you (not paused by you): its own color

@@ -58,6 +58,7 @@ void defaultcolors()
     printerConfig.nozzleclogRGB = hex2rgb("#FFD000");     // Yellow: nozzle clog
     printerConfig.needsYouRGB = hex2rgb("#FF7A00");       // Amber: waiting for you
     printerConfig.amsErrorRGB = hex2rgb("#9000FF");       // Purple: AMS problem
+    printerConfig.nozzleSwapRGB = hex2rgb("#00B4FF");     // Sky blue: swapping nozzles (H2)
     printerConfig.hmsSeriousRGB = hex2rgb("#FF0000");     // Red
     printerConfig.hmsFatalRGB = hex2rgb("#FF0000");       // Red
     printerConfig.filamentRunoutRGB = hex2rgb("#FF0000"); // Red

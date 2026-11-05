@@ -429,7 +429,18 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         if (!ext.isNull())
         {
             if (!ext["state"].isNull())
-                printerVariables.activeNozzle = ((ext["state"].as<int>() >> 4) & 0xF) ? 1 : 0;
+            {
+                int n = ((ext["state"].as<int>() >> 4) & 0xF) ? 1 : 0;
+                // Switched nozzles during a print: show the nozzle swap for a few seconds
+                if (n != printerVariables.activeNozzle && printerVariables.gcodeState == "RUNNING")
+                {
+                    printerVariables.nozzleSwapUntil = millis() + 8000;
+                    if (printerVariables.nozzleSwapUntil == 0)
+                        printerVariables.nozzleSwapUntil = 1;
+                    Changed = true;
+                }
+                printerVariables.activeNozzle = n;
+            }
             for (JsonObject e : ext["info"].as<JsonArray>())
             {
                 int id = e["id"] | -1;

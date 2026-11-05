@@ -204,6 +204,11 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["almostDoneMins"] = printerConfig.almostDoneMins;
     doc["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
     doc["calR"] = printerConfig.calR;
+    doc["amsPulseCount"] = printerConfig.amsPulseCount;
+    doc["nozzleSwapFx"] = printerConfig.nozzleSwapFx;
+    doc["nozzleSwapRGB"] = printerConfig.nozzleSwapRGB.RGBhex;
+    doc["nozzleSwapWW"] = printerConfig.nozzleSwapRGB.ww;
+    doc["nozzleSwapCW"] = printerConfig.nozzleSwapRGB.cw;
     doc["calG"] = printerConfig.calG;
     doc["calB"] = printerConfig.calB;
     doc["needsYouEnabled"] = printerConfig.needsYouEnabled;
@@ -376,6 +381,10 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.almostDoneMins = constrain(getSafeParamInt(request, "almostDoneMins", printerConfig.almostDoneMins), 1, 60);
     printerConfig.firstLayerSpotlight = request->hasParam("firstLayerSpotlight", true);
     printerConfig.calR = constrain(getSafeParamInt(request, "calR", printerConfig.calR), 10, 100);
+    printerConfig.amsPulseCount = request->hasParam("amsPulseCount", true);
+    printerConfig.nozzleSwapFx = request->hasParam("nozzleSwapFx", true);
+    if (request->hasParam("nozzleSwapRGB", true))
+        printerConfig.nozzleSwapRGB = hex2rgb(getSafeParamValue(request, "nozzleSwapRGB").c_str(), getSafeParamInt(request, "nozzleSwapWW"), getSafeParamInt(request, "nozzleSwapCW"));
     printerConfig.calG = constrain(getSafeParamInt(request, "calG", printerConfig.calG), 10, 100);
     printerConfig.calB = constrain(getSafeParamInt(request, "calB", printerConfig.calB), 10, 100);
     printerConfig.needsYouEnabled = request->hasParam("needsYouEnabled", true);
@@ -725,6 +734,15 @@ void handlePreview(AsyncWebServerRequest *request)
         if (!filamentLedColor(c))
             c = hex2rgb("#7A1FD1");
         startPreview(c, FX_PULSE, 10000, false);
+    }
+    else if (what == "amscount")
+    {
+        // The AMS pulse count: the real spool and its AMS when known, otherwise AMS 2 in purple
+        int unit = activeFilamentUnit();
+        if (!filamentLedColor(c))
+            c = hex2rgb("#7A1FD1");
+        ledPulseCount = unit > 0 ? unit : 2;
+        startPreview(c, FX_COUNT, 12000, false);
     }
     else if (what == "celebrate")
     {

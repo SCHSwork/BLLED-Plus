@@ -49,8 +49,10 @@ enum LedFx : uint8_t
     FX_RAINBOW = 4,
     FX_PULSE = 5, // slow, shallow pulse used for filament color
     FX_HEATDEMO = 6, // preview: plays the whole heat-up, cold to hot, over 7 s
-    FX_ACCENT = 7    // printing: normal light, with a filament-color swell now and then
+    FX_ACCENT = 7,   // printing: normal light, with a filament-color swell now and then
+    FX_COUNT = 8     // switching filament: ledPulseCount quick pulses, then a pause (which AMS)
 };
+int ledPulseCount = 1;
 
 const char *ledFxName(uint8_t fx)
 {
@@ -63,6 +65,7 @@ const char *ledFxName(uint8_t fx)
     case FX_PULSE: return "pulse";
     case FX_HEATDEMO: return "heat";
     case FX_ACCENT: return "accent";
+    case FX_COUNT: return "count";
     default: return "solid";
     }
 }
@@ -201,6 +204,41 @@ const char *slotCodeHex(int code)
         return strlen(v) ? v : printerVariables.extColor;
     }
     return "";
+}
+
+// Which AMS the active (or incoming) spool is in: 1-4 for AMS units, 5-12 for AMS HT units,
+// 0 for an external spool, -1 if unknown
+int activeFilamentUnit()
+{
+    int code = -1;
+    if (printerVariables.perNozzleSlots)
+    {
+        int n = printerVariables.activeNozzle;
+        code = filamentSwitching() && printerVariables.nozzleTar[n] != 0xFFFF ? printerVariables.nozzleTar[n] : printerVariables.nozzleNow[n];
+        if (code < 0 || code == 0xFFFF || (code & 0xFF) == 0xFF)
+            return -1;
+        int unit = code >> 8;
+        if (unit < 4)
+            return unit + 1;
+        if (unit >= 128 && unit < 136)
+            return unit - 128 + 5;
+        return (unit == 254 || unit == 255) ? 0 : -1;
+    }
+    int t = printerVariables.trayNow, tar = printerVariables.trayTar;
+    if (filamentSwitching() && ((tar >= 0 && tar < 16) || tar == 254 || (tar >= 128 && tar < 136)))
+        t = tar;
+    if (t >= 0 && t < 16)
+        return t / 4 + 1;
+    if (t >= 128 && t < 136)
+        return t - 128 + 5;
+    return t == 254 ? 0 : -1;
+}
+
+bool nozzleSwapping()
+{
+    int st = printerVariables.stage;
+    return st == 62 || st == 64 || // H2: hotend pick-and-place / preparing the hotend (Vortek)
+           (printerVariables.nozzleSwapUntil && (int32_t)(printerVariables.nozzleSwapUntil - millis()) > 0);
 }
 
 const char *activeFilamentHex()
@@ -462,6 +500,23 @@ static void ledRenderFrame()
     {
         // 5 s period, dips to ~45% - a steady, soft pulse rather than a flash
         float k = 0.45f + 0.55f * (0.5f + 0.5f * cosf(2.0f * PI * (float)(now % 5000) / 5000.0f));
+        for (int i = 0; i < 5; i++)
+            out[i] *= k;
+        break;
+    }
+    case FX_COUNT:
+    {
+        // n soft pulses (0.4 s each, 0.25 s apart), then a 1.4 s pause: count them for the AMS number
+        const uint32_t on = 400, gap = 250, rest = 1400;
+        uint32_t n = (uint32_t)constrain(ledPulseCount, 1, 8);
+        uint32_t ph = now % (n * (on + gap) + rest);
+        float k = 0.12f;
+        if (ph < n * (on + gap))
+        {
+            uint32_t t = ph % (on + gap);
+            if (t < on)
+                k = 0.12f + 0.88f * sinf(PI * (float)t / (float)on);
+        }
         for (int i = 0; i < 5; i++)
             out[i] *= k;
         break;
@@ -1122,11 +1177,29 @@ void updateleds()
         COLOR c;
         if (printerVariables.online && printerConfig.filamentColorFx && filamentSwitching() && filamentLedColor(c))
         {
-            ledSetNextFx(FX_PULSE);
+            int unit = activeFilamentUnit();
+            if (printerConfig.amsPulseCount && unit > 0)
+            {
+                // Count the pulses: 1 for AMS 1, 2 for AMS 2 ...
+                ledPulseCount = unit;
+                ledSetNextFx(FX_COUNT);
+            }
+            else if (printerConfig.amsPulseCount && unit == 0)
+                ledSetNextFx(FX_SOLID); // external spool: steady
+            else
+                ledSetNextFx(FX_PULSE);
             tweenToColor(c, 1500);
             printLogs("Switching filament - filament color", c);
             return;
         }
+    }
+
+    // H2 series: swapping nozzles (Vortek hotend change, or switching between the two nozzles)
+    if (printerVariables.online && printerConfig.nozzleSwapFx && nozzleSwapping())
+    {
+        showFx(FX_BREATHE, printerConfig.nozzleSwapRGB);
+        printLogs("Swapping nozzles", printerConfig.nozzleSwapRGB);
+        return;
     }
 
     // Heat-up glow while preheating for a print, or while the bed / nozzle heats from the screen
@@ -1606,6 +1679,13 @@ void ledsloop()
     if (idleDimActive && idleDimExpired())
     {
         idleDimActive = false;
+        updateleds();
+    }
+
+    // A mid-print nozzle switch shows for a few seconds; go back to normal afterwards
+    if (printerVariables.nozzleSwapUntil && (int32_t)(printerVariables.nozzleSwapUntil - millis()) <= 0)
+    {
+        printerVariables.nozzleSwapUntil = 0;
         updateleds();
     }
 
