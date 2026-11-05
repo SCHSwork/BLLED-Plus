@@ -55,6 +55,18 @@ void handleSetup(AsyncWebServerRequest *request)
 
 void handleUpdatePage(AsyncWebServerRequest *request)
 {
+    // Opened by name (blled.local)? Switch to the controller's IP address first. Some phones lose
+    // track of the .local name partway through a long upload, which makes the update fail.
+    if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
+    {
+        String ip = WiFi.localIP().toString();
+        String host = request->host();
+        int colon = host.indexOf(':');
+        if (colon >= 0)
+            host = host.substring(0, colon);
+        if (host.length() && host != ip && ip != "0.0.0.0")
+            return request->redirect("http://" + ip + request->url());
+    }
     if (!isAuthorized(request))
     {
         return request->requestAuthentication();
