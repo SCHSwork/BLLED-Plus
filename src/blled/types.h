@@ -75,7 +75,8 @@ extern "C"
         unsigned long nozzleSwapUntil = 0; // show the nozzle swap until then (switched nozzles mid-print)
         bool perNozzleTemps = false;      // H2: device.extruder.info[].temp seen
         float nozTemp[2] = {0, 0}, nozTarget[2] = {0, 0};
-        unsigned long swapHeatUntil = 0;  // after a nozzle swap: show the new hotend heating up until then
+        unsigned long swapHeatUntil = 0;
+        unsigned long lightKnownMs = 0;   // when the printer's light state was first reported since connecting (0 = not yet)  // after a nozzle swap: show the new hotend heating up until then
 
         bool timelapse = false;           // printer is recording a timelapse (ipcam.timelapse)
         bool coolWaiting = false;         // print finished, holding the finish color until the bed cools

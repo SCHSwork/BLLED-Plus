@@ -71,70 +71,44 @@ bool connectToWifi(){
         }
     }
     
+    // Wait up to ~40 s. Routers often refuse or drop the first attempt right after a restart
+    // (the old connection hasn't timed out on their side yet), so transient states like
+    // "disconnected" or "connection lost" are not a reason to give up. Half way through, try
+    // again without the remembered access point (BSSID), in case a mesh node changed.
+    const int maxChecks = 20;
     wl_status_t status = WiFi.status();
-    while (status != WL_CONNECTED) {
-        if(connectionAttempts > 10 && wifimode == 0){
+    wl_status_t lastShown = (wl_status_t)255;
+    for (int check = 1; status != WL_CONNECTED; check++) {
+        if (check > maxChecks) {
+            Serial.print(F("Wi-Fi didn't connect within 40 s, last status: "));
+            Serial.println(wl_status_to_string(status));
+            return false;
+        }
+        if (check == maxChecks / 2 + 1) {
             WiFi.disconnect();
+            delay(100);
             WiFi.begin(globalVariables.SSID, globalVariables.APPW);
-            connectionAttempts = 1;
             wifimode = 1;
-            Serial.println(F("Attempting to connect without specific BSSI"));
+            Serial.println(F("Retrying without a specific access point (BSSID)"));
         }
-        if(connectionAttempts > 10 && wifimode == 1){
-            WiFi.disconnect();
-            WiFi.begin(globalVariables.SSID);
-            connectionAttempts = 1;
-            wifimode = 2;
-            if(strlen(printerConfig.BSSID) == 0) wifimode = 0;
-            
-            Serial.println(F("Attempting to connect to open network (no password)"));
-        }
-        if(connectionAttempts > 10 && wifimode == 2){
-            WiFi.disconnect();
-            WiFi.begin(globalVariables.SSID, globalVariables.APPW, 0, bssid);
-            connectionAttempts = 1;
-            wifimode = 0;
-            Serial.println(F("Attempting to connect to wifi using BSSI"));
-        }
-
         Serial.print(F("Connecting to WIFI.. Status check #"));
-        Serial.print(connectionAttempts);
-        Serial.print(F(" / 10      SSID: "));
+        Serial.print(check);
+        Serial.print(F(" / "));
+        Serial.print(maxChecks);
+        Serial.print(F("      SSID: "));
         Serial.print(globalVariables.SSID);
-        if(strlen(printerConfig.BSSID) > 0){
+        if (strlen(printerConfig.BSSID) > 0 && wifimode == 0) {
             Serial.print(F("   BSSID: "));
             Serial.print(printerConfig.BSSID);
         }
         Serial.println();
-
-        if(status != WiFi.status()){
-            status = WiFi.status();
-            switch (status)
-            {
-                case WL_CONNECTED:
-                case WL_IDLE_STATUS:
-                case WL_CONNECT_FAILED:
-                    Serial.print(F("Wifi Status: "));
-                    Serial.println(wl_status_to_string(status));
-                    break;
-                case WL_NO_SSID_AVAIL:
-                    Serial.print(F("Wifi Status: "));
-                    Serial.println(wl_status_to_string(status));
-                    Serial.println(F("Bad WiFi credentials"));
-                    return false;
-                case WL_DISCONNECTED:
-                    Serial.print(F("Wifi Status: "));
-                    Serial.println(wl_status_to_string(status));
-                    Serial.println(F("Disconnected. (Check low RSSI)"));
-                    return false;
-                default:
-                    Serial.print(F("Uncaught Status - Wifi Status: "));
-                    Serial.println(wl_status_to_string(status));
-                    break;
-            }
-        }
         delay(2000); // Giving time to connect
-        connectionAttempts++;
+        status = WiFi.status();
+        if (status != lastShown) {
+            lastShown = status;
+            Serial.print(F("Wifi Status: "));
+            Serial.println(wl_status_to_string(status));
+        }
     }
 
 
@@ -165,9 +139,10 @@ bool connectToWifi(){
     return true;
 };
 
-void startAPMode() {
+void startAPMode(bool keepTrying = false) {
     WiFi.disconnect(true, true);
-    WiFi.mode(WIFI_AP);
+    // With saved Wi-Fi details, keep trying them in the background while the setup hotspot is up
+    WiFi.mode(keepTrying ? WIFI_AP_STA : WIFI_AP);
     delay(500);
     WiFi.softAP("BLLED_AP");
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
@@ -175,6 +150,11 @@ void startAPMode() {
 
     Serial.print(F("[WiFiManager] AP started on IP: "));
     Serial.println(WiFi.softAPIP());
+    if (keepTrying) {
+        WiFi.setAutoReconnect(true);
+        WiFi.begin(globalVariables.SSID, globalVariables.APPW);
+        Serial.println(F("[WiFiManager] Still trying the saved Wi-Fi in the background"));
+    }
 }
 
 void scanNetwork()

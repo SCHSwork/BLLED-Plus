@@ -1769,10 +1769,16 @@ void ledsloop()
     static bool syncLit = false, syncSeeded = false;
     static unsigned long syncChangeMs = 0;
     bool litNow = !idleDimActive && (currentRed || currentGreen || currentBlue || currentWarm || currentCold);
-    if (!syncSeeded)
+    // Only sync once the printer has told us its light state and things have settled after
+    // (re)connecting; before that the strip's state is a start-up guess, and syncing it would flip
+    // the printer's light (seen as the strip turning off and back on after a restart)
+    bool syncReady = printerVariables.online && printerVariables.lightKnownMs &&
+                     millis() - printerVariables.lightKnownMs > 8000;
+    if (!syncSeeded || !syncReady)
     {
         syncSeeded = true;
         syncLit = litNow;
+        syncChangeMs = 0;
     }
     if (litNow != syncLit)
     {

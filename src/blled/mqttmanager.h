@@ -97,6 +97,7 @@ bool connectMqtt()
         printerVariables.disconnectMQTTms = 0;
         printerVariables.lastMqttMsgMs = millis();
         printerVariables.mqttConnects++;
+        printerVariables.lightKnownMs = 0; // light state unknown until the printer reports it
         pendingPushAll = true;
         requestLedUpdate();
         return true;
@@ -677,6 +678,8 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         {
             if (light["node"] == "chamber_light")
             {
+                if (printerVariables.lightKnownMs == 0)
+                    printerVariables.lightKnownMs = millis() ? millis() : 1;
                 if (printerVariables.printerledstate != (light["mode"] == "on"))
                 {
                     printerVariables.printerledstate = (light["mode"] == "on");

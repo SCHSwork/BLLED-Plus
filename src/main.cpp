@@ -15,6 +15,8 @@ static char restartNote[40];
 static uint32_t restartNoteMagic;
 #endif
 String lastRestartWhy = "";
+bool rescueMode = false;          // saved Wi-Fi failed at start-up; hotspot up while retrying
+unsigned long rescueSinceMs = 0;
 void noteRestart(const char *why)
 {
     strncpy(restartNote, why, sizeof(restartNote) - 1);
@@ -147,8 +149,11 @@ void setup()
 
         if (!connectToWifi())
     {
-        Serial.println(F("[WiFiManager] Not connected → AP Mode"));
-        startAPMode();
+        Serial.println(F("[WiFiManager] Not connected → AP Mode (temporary: the saved Wi-Fi is retried)"));
+        rescueMode = true;
+        rescueSinceMs = millis();
+        tweenToColor(100, 0, 100, 0, 0); // PINK: setup hotspot is up
+        startAPMode(true);
         setupWebserver();
         return;
     }
@@ -246,6 +251,33 @@ void loop()
     if (WiFi.getMode() & WIFI_AP)
     {
         dnsServer.processNextRequest();
+    }
+
+    // Saved Wi-Fi didn't connect at start-up, so the setup hotspot is up. That's usually a router
+    // hiccup, not a setup problem: keep retrying, and as soon as the home Wi-Fi is back (and nobody
+    // is using the hotspot to change settings) restart into normal operation. If it's been 10
+    // minutes with nobody on the hotspot, restart and try from scratch.
+    if (rescueMode)
+    {
+        static unsigned long lastRetry = 0;
+        bool someoneOnHotspot = WiFi.softAPgetStationNum() > 0;
+        if (WiFi.status() == WL_CONNECTED && !someoneOnHotspot)
+        {
+            Serial.println(F("[WiFiManager] Saved Wi-Fi is back - restarting into normal operation"));
+            noteRestart("Wi-Fi came back after start-up");
+            delay(200);
+            ESP.restart();
+        }
+        if (!someoneOnHotspot && millis() - lastRetry > 30000 && WiFi.status() != WL_CONNECTED)
+        {
+            lastRetry = millis();
+            WiFi.begin(globalVariables.SSID, globalVariables.APPW);
+        }
+        if (!someoneOnHotspot && millis() - rescueSinceMs > 600000UL)
+        {
+            noteRestart("Wi-Fi not found at start-up, retried");
+            ESP.restart();
+        }
     }
 
     if (globalVariables.started)
