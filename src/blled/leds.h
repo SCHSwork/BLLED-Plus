@@ -240,7 +240,13 @@ int activeFilamentUnit()
 bool nozzleSwapping()
 {
     int st = printerVariables.stage;
-    return st == 62 || st == 64 || // H2: hotend pick-and-place / preparing the hotend (Vortek)
+    int rs = printerVariables.rackStat, job = printerVariables.rackJob;
+    // H2C Vortek hotend rack, decoded the way Bambu Studio does (DevNozzleRack IsPicking/IsPlacing):
+    // job 1 pick, 2 place, 3 swap; steps 4-11 are heating, cutting, unlocking, placing, picking, locking
+    // (a job only counts while the rack is on a real step, so a leftover job number can't stick)
+    bool rackBusy = (job >= 1 && job <= 3 && rs >= 1 && rs <= 11) || rs == 8 || rs == 9;
+    return rackBusy || printerVariables.amsSwitchHotend ||
+           st == 62 || st == 64 || // stages: hotend pick-and-place / preparing the hotend
            (printerVariables.nozzleSwapUntil && (int32_t)(printerVariables.nozzleSwapUntil - millis()) > 0);
 }
 

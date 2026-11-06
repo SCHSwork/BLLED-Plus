@@ -297,6 +297,10 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["device"]["extruder"]["info"][0]["temp"] = true;
     filter["print"]["vir_slot"][0]["id"] = true;
     filter["print"]["vir_slot"][0]["tray_color"] = true;
+    // H2C Vortek hotend rack: what the rack is doing (from Bambu Studio's DevNozzleRack)
+    filter["print"]["device"]["holder"]["stat"] = true;
+    filter["print"]["device"]["holder"]["job"] = true;
+    filter["print"]["ams_status"] = true;
     filter["print"]["ipcam"]["timelapse"] = true;
     filter["system"]["command"] = true;
     filter["system"]["led_mode"] = true;
@@ -431,6 +435,26 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
         if (!print["vt_tray"].isNull())
             setHex(printerVariables.extColor, print["vt_tray"]["tray_color"] | "");
+
+        // H2C Vortek: the hotend rack reports each pick/place step in device.holder
+        JsonObject holder = print["device"]["holder"];
+        if (!holder.isNull())
+        {
+            int st = holder["stat"] | printerVariables.rackStat;
+            int job = holder["job"] | printerVariables.rackJob;
+            if (st != printerVariables.rackStat || job != printerVariables.rackJob)
+                Changed = true;
+            printerVariables.rackStat = st;
+            printerVariables.rackJob = job;
+        }
+        if (!print["ams_status"].isNull())
+        {
+            // high byte is the main AMS state; 0x08 = switching the hotend
+            bool sw = ((print["ams_status"].as<int>() >> 8) & 0xFF) == 0x08;
+            if (sw != printerVariables.amsSwitchHotend)
+                Changed = true;
+            printerVariables.amsSwitchHotend = sw;
+        }
 
         // H2 series: which nozzle is active, and which slot feeds each nozzle
         JsonObject ext = print["device"]["extruder"];
