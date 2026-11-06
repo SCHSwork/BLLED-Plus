@@ -587,3 +587,19 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
     border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
 }
 .cal-test[aria-pressed="true"] { border-color: currentColor; font-weight: 600; }
+
+/* Firmware update progress */
+.ota { margin: 14px 0 4px; }
+.ota-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ota-top b { font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
+.ota-top span { color: var(--muted); }
+.ota-track { height: 12px; border-radius: 999px; background: var(--raised); overflow: hidden; margin: 10px 0 8px; }
+.ota-fill { height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .6s ease; }
+.ota-sub { font-variant-numeric: tabular-nums; }
+.ota-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 12px 0 8px; }
+.ota-steps li { flex: 1; text-align: center; font-size: 12px; padding: 6px 0; border-radius: 8px; background: var(--raised); color: var(--muted); }
+.ota-steps li.now { color: inherit; font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.ota-steps li.done { color: inherit; }
+.ota-steps li.done::before { content: "\2713  "; }
+.ota-hint { color: var(--muted); display: block; }
+@media (prefers-reduced-motion: reduce) { .ota-fill { transition: none; } }

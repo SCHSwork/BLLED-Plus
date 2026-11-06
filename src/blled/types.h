@@ -4,6 +4,7 @@
 // so the controller can give the upload its full attention
 inline volatile bool otaActive = false;
 inline volatile unsigned long otaLastData = 0;
+inline volatile unsigned long otaBytes = 0, otaTotal = 0; // received so far / expected size
 #define _TYPES
 
 #ifdef __cplusplus

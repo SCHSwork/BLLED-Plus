@@ -21,7 +21,16 @@
             <form enctype="multipart/form-data" id="upload_form" method="post">
                 <label for="file1">Select .bin.ota File</label>
                 <input accept=".ota,.bin,application/octet-stream" id="file1" name='firmware' type="file">
-                <progress id="progressBar" max="100" value="0"></progress>
+                <div id="otaBox" class="ota" hidden>
+                    <div class="ota-top"><b id="otaPct">0%</b><span id="otaStep">Uploading</span></div>
+                    <div class="ota-track"><div class="ota-fill" id="otaFill"></div></div>
+                    <div class="ota-sub" id="otaSub">Starting...</div>
+                    <ol class="ota-steps" aria-label="Steps">
+                        <li data-step="upload">Upload</li><li data-step="install">Install</li><li data-step="restart">Restart</li><li data-step="done">Done</li>
+                    </ol>
+                    <small class="ota-hint">Keep this page open and the screen on. The light strip fills up as the file arrives.</small>
+                </div>
+                <progress id="progressBar" max="100" value="0" hidden></progress>
                 <button id="button-send" type="submit" disabled>Update Firmware</button>
 
                 <div style="margin-top: 10px;">
@@ -72,6 +81,50 @@
 
         function _(el) { return document.getElementById(el); }
 
+        // ---- Progress display ----
+        let otaStart = 0, otaSize = 0, otaSeen = 0, otaPoll = null, rateHist = [];
+        const mb = n => (n / 1048576).toFixed(2);
+        function setStep(step) {
+            const order = ['upload', 'install', 'restart', 'done'];
+            const at = order.indexOf(step);
+            document.querySelectorAll('.ota-steps li').forEach(li => {
+                const i = order.indexOf(li.dataset.step);
+                li.className = i < at ? 'done' : i === at ? 'now' : '';
+            });
+            _('otaStep').textContent = { upload: 'Uploading', install: 'Installing', restart: 'Restarting', done: 'Done' }[step];
+        }
+        function showBytes(n) {
+            if (!otaSize || n < otaSeen) return;
+            otaSeen = n;
+            const p = Math.min(100, Math.floor(n * 100 / otaSize));
+            _('otaPct').textContent = p + '%';
+            _('otaFill').style.width = p + '%';
+            const now = Date.now();
+            rateHist.push([now, n]);
+            while (rateHist.length > 2 && now - rateHist[0][0] > 15000) rateHist.shift();
+            let left = '';
+            if (rateHist.length > 1) {
+                const [t0, n0] = rateHist[0];
+                const rate = (n - n0) / Math.max(1, (now - t0) / 1000); // bytes per second
+                if (rate > 0 && p < 100) {
+                    const s = Math.round((otaSize - n) / rate);
+                    left = s >= 90 ? ' · about ' + Math.round(s / 60) + ' min left' : ' · about ' + Math.max(5, Math.ceil(s / 5) * 5) + ' s left';
+                }
+            }
+            _('otaSub').textContent = mb(n) + ' of ' + mb(otaSize) + ' MB' + left;
+            if (p >= 100) { setStep('install'); _('otaSub').textContent = 'Checking and installing the new firmware...'; }
+        }
+        // What the controller has actually received: the browser's own count can run ahead
+        function startPolling() {
+            otaPoll = setInterval(() => {
+                fetch('/api/ota', { cache: 'no-store' }).then(r => r.json()).then(d => {
+                    if (d.total) otaSize = d.total;
+                    showBytes(d.bytes);
+                }).catch(() => {});
+            }, 1500);
+        }
+        function stopPolling() { clearInterval(otaPoll); otaPoll = null; }
+
         // The version before the update, so the page can tell whether the new one actually installed
         let fwBefore = null, uploadedAll = false;
         fetch('/api/status').then(r => r.json()).then(d => fwBefore = d.fw).catch(() => {});
@@ -88,11 +141,15 @@
                         clearInterval(interval);
                         if (afterError && d.uptime > 60) {
                             _('status').textContent = "Upload failed: the connection dropped partway. Nothing changed (still on " + d.fw + ") - try again.";
+                            _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
                             alertToast("error", "Firmware upload failed!");
                         } else if (fwBefore && d.fw === fwBefore) {
                             _('status').textContent = "Still on " + d.fw + ". The update didn't install - try again.";
+                            _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
                             alertToast("error", "Update didn't install");
                         } else {
+                            setStep('done'); _('otaPct').textContent = '100%'; _('otaFill').style.width = '100%';
+                            _('otaSub').textContent = 'Running ' + d.fw + '. Took ' + Math.round((Date.now() - otaStart) / 1000) + ' s.';
                             _('status').textContent = "Updated to " + d.fw + ".";
                             alertToast("success", "Updated to " + d.fw);
                             setTimeout(() => location.href = "/", 2500);
@@ -111,6 +168,10 @@
 
         function uploadFile() {
             var file = _("file1").files[0];
+            otaSize = file.size; otaSeen = 0; rateHist = []; otaStart = Date.now();
+            _('otaBox').hidden = false; setStep('upload');
+            _('button-send').disabled = true; _('file1').disabled = true;
+            startPolling();
             var formdata = new FormData();
             formdata.append("firmware", file, file.name);
             var ajax = new XMLHttpRequest();
@@ -128,16 +189,21 @@
             var percent = Math.round((event.loaded / event.total) * 100);
             _("progressBar").value = percent;
             if (percent >= 100) uploadedAll = true;
+            // The browser counts the form wrapper too; scale it to the file size
+            showBytes(Math.round(event.loaded / event.total * otaSize));
         }
 
         function completeHandler(event) {
             _("progressBar").value = 0;
+            stopPolling();
             const x = event.target;
             if (x && x.status && x.status !== 200) {
+                _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
                 _('status').textContent = x.responseText || ("Update failed (" + x.status + ").");
                 alertToast("error", "Update failed");
                 return;
             }
+            showBytes(otaSize); setStep('restart'); _('otaSub').textContent = 'Restarting into the new version...';
             _('status').textContent = "Upload complete. Restarting...";
             alertToast("success", "Firmware uploaded");
             waitForRestart();
@@ -149,6 +215,7 @@
         }
 
         function errorHandler(event) {
+            stopPolling();
             // The connection dropped. That can also happen when the update went through and the
             // controller restarted before its reply arrived, so check which version it's running.
             _('status').textContent = "The connection dropped. Checking whether the update installed...";

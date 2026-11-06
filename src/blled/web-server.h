@@ -1041,6 +1041,13 @@ void setupWebserver()
     webServer.on("/api/status", HTTP_GET, handleApiStatus);
     webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)
                  { request->send(200, "text/plain", "ok"); });
+    // How much of a firmware upload has actually arrived (the browser's own count runs ahead)
+    webServer.on("/api/ota", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        char b[96];
+        snprintf(b, sizeof(b), "{\"active\":%s,\"bytes\":%lu,\"total\":%lu}", otaActive ? "true" : "false",
+                 (unsigned long)otaBytes, (unsigned long)otaTotal);
+        request->send(200, "application/json", b); });
     webServer.on("/api/useDiscoveredSerial", HTTP_POST, handleUseDiscoveredSerial);
     webServer.on("/api/quick", HTTP_POST, handleQuick);
     webServer.on("/api/preview", HTTP_POST, handlePreview);
@@ -1129,6 +1136,8 @@ void setupWebserver()
                 return;
             }
             LogSerial.printf("[OTA] Start: %s\n", filename.c_str());
+            otaTotal = request->contentLength();
+            otaBytes = 0;
             otaActive = true;
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                 Update.printError(LogSerial);
@@ -1139,6 +1148,7 @@ void setupWebserver()
         }
 
         otaLastData = millis();
+        otaBytes = index + len;
         if (Update.write(data, len) != len) {
             Update.printError(LogSerial);
         }

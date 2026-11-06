@@ -622,6 +622,19 @@ static void ledRenderFrame()
         out[4] *= (1.0f - w);
     }
 
+    // Firmware update uploading: the strip fills up with light as the file arrives (sky blue,
+    // dim at the start, full when done), with a slow shimmer so it's clearly still working
+    if (otaActive)
+    {
+        float p = otaTotal ? constrain((float)otaBytes / (float)otaTotal, 0.0f, 1.0f) : 0.0f;
+        float shimmer = 0.9f + 0.1f * sinf(2.0f * PI * (float)(now % 1500) / 1500.0f);
+        float v = (0.08f + 0.92f * p) * shimmer;
+        out[0] = 0;
+        out[1] = toPerceptual((int)(180 * v * calGain(1)));
+        out[2] = toPerceptual((int)(255 * v * calGain(2)));
+        out[3] = out[4] = 0;
+    }
+
     portENTER_CRITICAL(&ledMux);
     memcpy(ledOut, out, sizeof(ledOut));
     portEXIT_CRITICAL(&ledMux);
