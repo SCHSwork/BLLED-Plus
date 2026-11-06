@@ -271,6 +271,8 @@ void loop()
     if (otaActive && !shouldRestart && millis() - otaLastData > 20000)
     {
         LogSerial.println(F("[OTA] Upload stopped arriving - resuming normal work"));
+        if (Update.isRunning())
+            Update.abort(); // so the next upload starts clean
         otaActive = false;
     }
     if (shouldRestart && millis() - restartRequestTime > 3000)

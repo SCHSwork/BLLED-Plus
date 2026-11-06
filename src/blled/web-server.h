@@ -1139,6 +1139,13 @@ void setupWebserver()
             otaTotal = request->contentLength();
             otaBytes = 0;
             otaActive = true;
+            // An earlier upload that was cut off leaves its update session open. Starting a new one
+            // on top of it fails ("No Error"), the new file gets appended to the old half-written
+            // one, and the result can't be activated. Close any leftover session first.
+            if (Update.isRunning()) {
+                LogSerial.println(F("[OTA] Closing an unfinished earlier upload"));
+                Update.abort();
+            }
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                 Update.printError(LogSerial);
             }
