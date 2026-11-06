@@ -1044,6 +1044,8 @@ void setupWebserver()
     // How much of a firmware upload has actually arrived (the browser's own count runs ahead)
     webServer.on("/api/ota", HTTP_GET, [](AsyncWebServerRequest *request)
                  {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
         char b[96];
         snprintf(b, sizeof(b), "{\"active\":%s,\"bytes\":%lu,\"total\":%lu}", otaActive ? "true" : "false",
                  (unsigned long)otaBytes, (unsigned long)otaTotal);
