@@ -606,6 +606,22 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         }
     }
 
+    // After the first-layer scan some printers stop sending stg_cur, so the stage stays at
+    // 9 / 10 (a lidar step, dark) for the rest of the print. print_real_action 0 while RUNNING
+    // means it's printing again. (Fix from BLLEDController-NG by softwarecrash.)
+    if (messageobject["print"]["stg_cur"].isNull() && !messageobject["print"]["print_real_action"].isNull())
+    {
+        int action = messageobject["print"]["print_real_action"].as<int>();
+        String gcodeNow = messageobject["print"]["gcode_state"].isNull() ? printerVariables.gcodeState
+                                                                         : messageobject["print"]["gcode_state"].as<String>();
+        if (action == 0 && gcodeNow == "RUNNING" && (printerVariables.stage == 9 || printerVariables.stage == 10))
+        {
+            printerVariables.stage = 0;
+            LogSerial.println(F("[MQTT] No stage after the first-layer scan - treating as printing"));
+            Changed = true;
+        }
+    }
+
     // Check BBLP GCode State
     if (!messageobject["print"]["gcode_state"].isNull() && ((millis() - lastMQTTupdate) > 3000))
     {
