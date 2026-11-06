@@ -82,7 +82,7 @@
         function _(el) { return document.getElementById(el); }
 
         // ---- Progress display ----
-        let otaStart = 0, otaSize = 0, otaSeen = 0, otaPoll = null, rateHist = [];
+        let otaStart = 0, otaSize = 0, otaSeen = 0, otaPoll = null, rateHist = [], serverCounts = false;
         const mb = n => (n / 1048576).toFixed(2);
         function setStep(step) {
             const order = ['upload', 'install', 'restart', 'done'];
@@ -118,7 +118,9 @@
         function startPolling() {
             otaPoll = setInterval(() => {
                 fetch('/api/ota', { cache: 'no-store' }).then(r => r.json()).then(d => {
+                    if (!d.active && !d.bytes) return;
                     if (d.total) otaSize = d.total;
+                    if (!serverCounts) { serverCounts = true; otaSeen = 0; rateHist = []; } // switch to the real count
                     showBytes(d.bytes);
                 }).catch(() => {});
             }, 1500);
@@ -131,44 +133,60 @@
 
         // After an upload: wait for the controller to come back and report which version it runs.
         // This also catches an upload that went through but whose reply got lost in the restart.
+        // After an upload: wait for the controller to actually restart (it goes quiet, or comes back
+        // with a fresh uptime) and then report the version it runs. Rejoining Wi-Fi after a restart
+        // can take 15-40 s, so this waits up to 2 minutes before deciding anything.
         function waitForRestart(afterError) {
-            let attempts = 0;
+            const started = Date.now();
+            let sawDown = false, done = false;
+            const finish = (fn) => { if (!done) { done = true; clearInterval(interval); fn(); } };
+            const failed = (msg, toast) => {
+                _('status').textContent = msg;
+                _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
+                alertToast("error", toast);
+            };
             const interval = setInterval(() => {
+                const waited = (Date.now() - started) / 1000;
                 fetch('/api/status', { cache: 'no-store' })
                     .then(r => r.json())
                     .then(d => {
-                        if (d.uptime > 60 && attempts < 3) return; // hasn't restarted yet
-                        clearInterval(interval);
-                        if (afterError && d.uptime > 60) {
-                            _('status').textContent = "Upload failed: the connection dropped partway. Nothing changed (still on " + d.fw + ") - try again.";
-                            _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
-                            alertToast("error", "Firmware upload failed!");
-                        } else if (fwBefore && d.fw === fwBefore) {
-                            _('status').textContent = "Still on " + d.fw + ". The update didn't install - try again.";
-                            _('otaBox').hidden = true; _('button-send').disabled = false; _('file1').disabled = false;
-                            alertToast("error", "Update didn't install");
-                        } else {
-                            setStep('done'); _('otaPct').textContent = '100%'; _('otaFill').style.width = '100%';
-                            _('otaSub').textContent = 'Running ' + d.fw + '. Took ' + Math.round((Date.now() - otaStart) / 1000) + ' s.';
-                            _('status').textContent = "Updated to " + d.fw + ".";
-                            alertToast("success", "Updated to " + d.fw);
-                            setTimeout(() => location.href = "/", 2500);
+                        const restarted = sawDown || d.uptime < waited + 5;
+                        if (!restarted) {
+                            // Still running the old session. After a dropped connection with no
+                            // restart in 20 s, the upload didn't get through.
+                            if (afterError && waited > 20)
+                                finish(() => failed("Upload failed: the connection dropped partway. Nothing changed (still on " + d.fw + ") - try again.", "Firmware upload failed!"));
+                            else if (waited > 120)
+                                finish(() => failed("Still on " + d.fw + " - the controller never restarted, so the update didn't install. Try again.", "Update didn't install"));
+                            return;
                         }
+                        finish(() => {
+                            if (fwBefore && d.fw === fwBefore) {
+                                failed("Still on " + d.fw + " after restarting - the update didn't install. Try again.", "Update didn't install");
+                            } else {
+                                setStep('done'); _('otaPct').textContent = '100%'; _('otaFill').style.width = '100%';
+                                _('otaSub').textContent = 'Running ' + d.fw + '. Took ' + Math.round((Date.now() - otaStart) / 1000) + ' s.';
+                                _('status').textContent = "Updated to " + d.fw + ".";
+                                alertToast("success", "Updated to " + d.fw);
+                                setTimeout(() => location.href = "/", 2500);
+                            }
+                        });
                     })
                     .catch(() => {
-                        if (attempts >= 60) {
-                            clearInterval(interval);
-                            _('status').textContent = "The controller hasn't come back yet. Give it a minute, then open the status page.";
-                            alertToast("error", "Device did not come back online.");
-                        }
+                        sawDown = true; // restarting or rejoining Wi-Fi
+                        _('otaSub').textContent = 'Restarting and rejoining Wi-Fi... (' + Math.round(waited) + ' s)';
+                        if (waited > 150)
+                            finish(() => {
+                                _('status').textContent = "The controller hasn't come back yet. Give it a minute, then open the status page.";
+                                alertToast("error", "Device did not come back online.");
+                            });
                     });
-                attempts++;
-            }, 2000);
+            }, 2500);
         }
 
         function uploadFile() {
             var file = _("file1").files[0];
-            otaSize = file.size; otaSeen = 0; rateHist = []; otaStart = Date.now();
+            otaSize = file.size; otaSeen = 0; rateHist = []; otaStart = Date.now(); serverCounts = false;
             _('otaBox').hidden = false; setStep('upload');
             _('button-send').disabled = true; _('file1').disabled = true;
             startPolling();
@@ -189,8 +207,9 @@
             var percent = Math.round((event.loaded / event.total) * 100);
             _("progressBar").value = percent;
             if (percent >= 100) uploadedAll = true;
-            // The browser counts the form wrapper too; scale it to the file size
-            showBytes(Math.round(event.loaded / event.total * otaSize));
+            // The browser's own count is only a stand-in until the controller reports what it has
+            // received; phones report the whole file as sent long before it has really arrived.
+            if (!serverCounts && percent < 100) showBytes(Math.round(event.loaded / event.total * otaSize));
         }
 
         function completeHandler(event) {
