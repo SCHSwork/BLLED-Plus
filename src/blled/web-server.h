@@ -438,6 +438,7 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
         strlcpy(printerConfig.tz, newTz.c_str(), sizeof(printerConfig.tz));
         setenv("TZ", printerConfig.tz, 1);
         tzset();
+        actLogTzReady = true;
     }
 
     saveFileSystem();

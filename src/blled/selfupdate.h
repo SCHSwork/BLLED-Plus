@@ -433,7 +433,7 @@ static void suTask(void *)
 {
     suState = SU_CHECKING;
     suError[0] = 0;
-    suMakeRoom(false);
+    suMakeRoom(true); // the printer connection and GitHub together use more memory than there is
     {
         WiFiClientSecure client;
         client.setCACertBundle(certBundle);

@@ -18,6 +18,8 @@ struct ActivityLog
     char buf[ACTLOG_SIZE];
 };
 RTC_NOINIT_ATTR ActivityLog actLog;
+bool actLogTzReady = false; // the time zone is set, so clock times are local (until then: time since start-up)
+static char actLogLast[100] = ""; // the previous line, to skip repeats
 static portMUX_TYPE actLogMux = portMUX_INITIALIZER_UNLOCKED;
 
 static void actLogPushRaw(const char *p, size_t n)
@@ -46,9 +48,22 @@ static void actLogLine(const char *line, size_t n)
         n--;
     if (!n || line[0] == '{')
         return; // skip blank lines and raw printer messages
+    // Skip a line that's the same as the one before (status lines repeat every few seconds and
+    // would push everything else out)
+    size_t cmpLen = n < sizeof(actLogLast) - 1 ? n : sizeof(actLogLast) - 1;
+    portENTER_CRITICAL(&actLogMux);
+    bool repeat = strlen(actLogLast) == cmpLen && memcmp(actLogLast, line, cmpLen) == 0;
+    if (!repeat)
+    {
+        memcpy(actLogLast, line, cmpLen);
+        actLogLast[cmpLen] = 0;
+    }
+    portEXIT_CRITICAL(&actLogMux);
+    if (repeat)
+        return;
     char stamp[16];
     time_t now = time(nullptr);
-    if (now > 1700000000)
+    if (actLogTzReady && now > 1700000000)
     {
         struct tm t;
         localtime_r(&now, &t);

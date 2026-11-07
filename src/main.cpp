@@ -176,6 +176,7 @@ void setup()
         WiFi.setAutoReconnect(true);
         // Network time, for quiet hours. Syncs in the background; quiet hours wait until it has.
         configTzTime(printerConfig.tz, "pool.ntp.org", "time.google.com");
+        actLogTzReady = true;
         tweenToColor(0, 0, 255, 0, 0); // BLUE
         setupWebserver();
         startWebHealthCheck();
