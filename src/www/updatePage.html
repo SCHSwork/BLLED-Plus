@@ -363,7 +363,7 @@
         function refresh() { return fetch('/api/github-update', { cache: 'no-store' }).then(r => r.json()).then(d => { show(d); return d; }); }
         function start(what) {
             const f = new FormData(); f.append('do', what);
-            return fetch('/api/github-update', { method: 'POST', body: f }).then(r => {
+            return fetch('/api/github-update', { method: 'POST', body: f, headers: { 'X-BLLED': '1' } }).then(r => {
                 if (!r.ok) return r.text().then(t => { $g('ghMsg').textContent = t; });
                 if (!poll) poll = setInterval(() => refresh().then(d => { if (!d.busy && d.state !== 'installed') { clearInterval(poll); poll = null; } }).catch(() => { }), 1000);
             });
