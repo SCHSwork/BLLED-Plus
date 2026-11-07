@@ -1,11 +1,11 @@
 name: Release
-# When a new firmware file lands on main (firmware/BLLC_V<version>.bin.ota, version taken from
-# platformio.ini), publish it as a GitHub release, using firmware/notes-v<version>.md as the text.
+# When a new firmware file lands on main (releases/BLLC_V<version>.bin.ota, version taken from
+# platformio.ini), publish it as a GitHub release, using releases/notes-v<version>.md as the text.
 # A version that already has a release is left alone.
 on:
   push:
     branches: [main]
-    paths: ['firmware/**']
+    paths: ['releases/**']
   workflow_dispatch:
 permissions:
   contents: write
@@ -20,8 +20,8 @@ jobs:
         run: |
           VER=$(sed -n 's/^custom_version *= *\([0-9.]*\).*/\1/p' platformio.ini)
           TAG="v${VER}"
-          FILE="firmware/BLLC_V${VER}.bin.ota"
-          NOTES="firmware/notes-${TAG}.md"
+          FILE="releases/BLLC_V${VER}.bin.ota"
+          NOTES="releases/notes-${TAG}.md"
           if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG already released"; exit 0; fi
           test -f "$FILE" || { echo "No $FILE yet - nothing to release"; exit 0; }
           test -f "$NOTES" || echo "BLLED Plus $TAG" > "$NOTES"

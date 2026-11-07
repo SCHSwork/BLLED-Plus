@@ -14,3 +14,6 @@ data/
 settings-backup.json
 *.log
 *.bin.ota
+
+# Firmware published by the Release workflow
+!releases/*.bin.ota
