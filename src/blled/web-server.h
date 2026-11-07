@@ -1102,6 +1102,7 @@ void setupWebserver()
         d["latest"] = suLatest;
         d["newer"] = suUpdateAvailable();
         d["hasFile"] = suAssetUrl[0] != 0;
+        d["signed"] = suSigUrl[0] != 0;
         d["error"] = suError;
         d["rolledBack"] = suRolledBack;
         d["bad"] = suBadTag;

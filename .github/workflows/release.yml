@@ -1,7 +1,8 @@
 name: Release
 # When a new firmware file lands on main (releases/BLLC_V<version>.bin.ota, version taken from
 # platformio.ini), publish it as a GitHub release, using releases/notes-v<version>.md as the text.
-# A version that already has a release is left alone.
+# A version that already has a release is left alone. Every release is signed with the
+# BLLED_SIGNING_KEY secret, and .sig is attached next to the firmware.
 on:
   push:
     branches: [main]
@@ -17,6 +18,7 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.BLLED_SIGNING_KEY }}
         run: |
           VER=$(sed -n 's/^custom_version *= *\([0-9.]*\).*/\1/p' platformio.ini)
           TAG="v${VER}"
@@ -25,4 +27,15 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG already released"; exit 0; fi
           test -f "$FILE" || { echo "No $FILE yet - nothing to release"; exit 0; }
           test -f "$NOTES" || echo "BLLED Plus $TAG" > "$NOTES"
-          gh release create "$TAG" "$FILE" --target "$GITHUB_SHA" --title "BLLED Plus $TAG" --notes-file "$NOTES" --latest
+          # Sign it: controllers only install updates signed with this key
+          if [ -z "$SIGNING_KEY" ]; then echo "::error::The BLLED_SIGNING_KEY secret is missing - not publishing an unsigned release"; exit 1; fi
+          umask 077; printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/key.pem" -out "$FILE.sig" "$FILE"
+          openssl ec -in "$RUNNER_TEMP/key.pem" -pubout 2>/dev/null > "$RUNNER_TEMP/pub.pem"
+          openssl dgst -sha256 -verify "$RUNNER_TEMP/pub.pem" -signature "$FILE.sig" "$FILE"
+          rm -f "$RUNNER_TEMP/key.pem"
+          # ...and make sure it's the key the firmware trusts (catches a wrong secret)
+          WANT=$(grep -o '"[A-Za-z0-9+/=]\{20,\}' src/blled/signing_key.h | tr -d '"' | tr -d '\n')
+          HAVE=$(grep -v '^-----' "$RUNNER_TEMP/pub.pem" | tr -d '\n')
+          [ "$WANT" = "$HAVE" ] || { echo "::error::BLLED_SIGNING_KEY doesn't match the key in src/blled/signing_key.h"; exit 1; }
+          gh release create "$TAG" "$FILE" "$FILE.sig" --target "$GITHUB_SHA" --title "BLLED Plus $TAG" --notes-file "$NOTES" --latest

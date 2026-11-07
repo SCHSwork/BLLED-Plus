@@ -353,6 +353,7 @@
             if (d.newer) {
                 msg.innerHTML = '<b>BLLED Plus ' + plain(d.latest) + ' is available.</b> You have ' + d.running + '.';
                 if (!d.hasFile) { msg.append(' The release has no .bin.ota file attached yet.'); btn.hidden = true; return; }
+                if (d.signed === false) { msg.append(" It isn't signed yet, so it can't be installed from here. Try again in a few minutes."); btn.hidden = true; return; }
                 btn.hidden = false; btn.textContent = 'Install ' + plain(d.latest); btn.dataset.do = 'install';
                 small.textContent = (small.textContent ? small.textContent + ' ' : '') + 'Takes about a minute. The lights keep working on the old version until it restarts.';
             } else {

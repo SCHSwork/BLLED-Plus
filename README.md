@@ -100,6 +100,7 @@ The log is at **http://blled.local/webserial** if you need to see what the contr
 - **Windows:** install PlatformIO, then run `build-firmware.bat`. `flash-firmware.bat` flashes over USB.
 - **Linux:** `tools/build-ota-linux.sh <toolchain-dir>` builds the `.bin.ota` with arduino-cli.
 - The web pages in `src/www` are compressed into `.h` files by `pre_build.py` before every build. Those generated files aren't checked in.
+- **Releases:** putting `releases/BLLC_V<version>.bin.ota` (and optionally `releases/notes-v<version>.md`) on `main` makes the Release workflow publish it, signed with the `BLLED_SIGNING_KEY` repository secret. Controllers on 2.8.11 and newer only install GitHub updates whose signature matches the public key in `src/blled/signing_key.h`, so a fork needs its own key pair there and in its secrets.
 - BLLED Plus uses a larger firmware space (`min_spiffs.csv`). A controller on the original layout still takes the `.bin.ota` update. To move one to the larger layout over USB without losing settings, run `migrate-layout.bat` (it backs up the settings first).
 
 ---

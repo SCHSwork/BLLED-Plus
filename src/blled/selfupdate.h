@@ -26,6 +26,9 @@
 #include "esp_ota_ops.h"
 #include "types.h"
 #include "cert_bundle.h"
+#include "signing_key.h"
+#include "mbedtls/sha256.h"
+#include "mbedtls/pk.h"
 
 #define SU_REPO "SCHSwork/BLLED-Plus"
 
@@ -42,6 +45,7 @@ volatile bool suManual = false;       // started from the update page (may insta
 volatile bool suBusy = false;         // a check or download is running
 char suLatest[24] = "";               // latest release tag on GitHub, e.g. "v2.8.5"
 char suAssetUrl[200] = "";
+char suSigUrl[200] = "";               // the release's signature file
 uint32_t suAssetSize = 0;
 char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
@@ -175,20 +179,65 @@ static bool suFetchLatest(WiFiClientSecure &client)
     }
     strlcpy(suLatest, doc["tag_name"], sizeof(suLatest));
     suAssetUrl[0] = 0;
+    suSigUrl[0] = 0;
     suAssetSize = 0;
     for (JsonObject a : doc["assets"].as<JsonArray>())
     {
         String name = a["name"] | "";
-        if (name.endsWith(".ota"))
+        if (name.endsWith(".ota") && !suAssetUrl[0])
         {
             strlcpy(suAssetUrl, a["browser_download_url"] | "", sizeof(suAssetUrl));
             suAssetSize = a["size"] | 0;
-            break;
         }
+        else if (name.endsWith(".ota.sig") && !suSigUrl[0])
+            strlcpy(suSigUrl, a["browser_download_url"] | "", sizeof(suSigUrl));
     }
     suChecked = true;
     LogSerial.printf("[Update] Latest on GitHub: %s (running %s)\n", suLatest, STRVERSION);
     return true;
+}
+
+// Download the small signature file into sig[] (DER-encoded ECDSA signature)
+static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
+{
+    HTTPClient http;
+    http.useHTTP10(true);
+    http.setTimeout(15000);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    if (!http.begin(client, suSigUrl))
+        return -1;
+    http.setUserAgent("BLLED-Plus/" STRVERSION);
+    int code = http.GET();
+    int n = -1;
+    if (code == 200)
+    {
+        WiFiClient *s = http.getStreamPtr();
+        unsigned long t0 = millis();
+        n = 0;
+        while ((size_t)n < max && millis() - t0 < 10000)
+        {
+            if (s->available())
+                sig[n++] = s->read();
+            else if (!s->connected())
+                break;
+            else
+                vTaskDelay(pdMS_TO_TICKS(5));
+        }
+    }
+    http.end();
+    client.stop();
+    return n;
+}
+
+// True if sig is a valid signature of this SHA-256 hash by the release key
+static bool suSignatureOk(const uint8_t hash[32], const uint8_t *sig, size_t sigLen)
+{
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    bool ok = mbedtls_pk_parse_public_key(&pk, (const unsigned char *)releaseSigningKey, sizeof(releaseSigningKey)) == 0 &&
+              mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, 32, sig, sigLen) == 0;
+    mbedtls_pk_free(&pk);
+    return ok;
 }
 
 static bool suDownload(WiFiClientSecure &client)
@@ -205,6 +254,21 @@ static bool suDownload(WiFiClientSecure &client)
     otaActive = true; // pauses the self-check and the update page's upload handling
     selfUpdating = true;
     suMakeRoom(true);
+
+    // Only firmware signed with the BLLED Plus release key gets installed
+    static uint8_t sig[80];
+    int sigLen = suSigUrl[0] ? suFetchSignature(client, sig, sizeof(sig)) : -2;
+    if (sigLen < 8)
+    {
+        suFail(sigLen == -2 ? "This release isn't signed, so it wasn't installed" : "Couldn't download the release's signature");
+        selfUpdating = false;
+        otaActive = false;
+        return false;
+    }
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    mbedtls_sha256_starts(&sha, 0);
+
     otaTotal = suAssetSize;
     otaBytes = 0;
     otaLastData = millis();
@@ -237,6 +301,7 @@ static bool suDownload(WiFiClientSecure &client)
             snprintf(suError, sizeof(suError), "Download failed (GitHub answered %d)", code);
         http.end();
         Update.abort();
+        mbedtls_sha256_free(&sha);
         suFail(suError);
         selfUpdating = false;
         otaActive = false;
@@ -266,6 +331,7 @@ static bool suDownload(WiFiClientSecure &client)
                 ok = false;
                 break;
             }
+            mbedtls_sha256_update(&sha, buf, n);
             got += n;
             otaBytes = got;
             otaLastData = lastData = millis();
@@ -282,6 +348,14 @@ static bool suDownload(WiFiClientSecure &client)
             vTaskDelay(pdMS_TO_TICKS(5));
     }
     http.end();
+    uint8_t hash[32];
+    mbedtls_sha256_finish(&sha, hash);
+    mbedtls_sha256_free(&sha);
+    if (ok && !suSignatureOk(hash, sig, sigLen))
+    {
+        strlcpy(suError, "The file isn't signed by BLLED Plus, so it wasn't installed", sizeof(suError));
+        ok = false;
+    }
     if (ok && !Update.end(true))
     {
         snprintf(suError, sizeof(suError), "The file didn't check out: %s", Update.errorString());
