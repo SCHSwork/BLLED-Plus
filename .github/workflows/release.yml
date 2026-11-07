@@ -18,7 +18,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VER=$(sed -n 's/^custom_version *= *//p' platformio.ini | tr -d '[:space:]')
+          VER=$(sed -n 's/^custom_version *= *\([0-9.]*\).*/\1/p' platformio.ini)
           TAG="v${VER}"
           FILE="firmware/BLLC_V${VER}.bin.ota"
           NOTES="firmware/notes-${TAG}.md"
