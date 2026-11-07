@@ -1,0 +1,24 @@
+name: Release
+# Pushing a tag like v2.8.6 publishes a GitHub release with firmware/BLLC_V2.8.6.bin.ota attached
+# and firmware/notes-v2.8.6.md as the description.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VER="${TAG#v}"
+          FILE="firmware/BLLC_V${VER}.bin.ota"
+          NOTES="firmware/notes-${TAG}.md"
+          test -f "$FILE" || { echo "Missing $FILE"; exit 1; }
+          test -f "$NOTES" || echo "Release $TAG" > "$NOTES"
+          gh release create "$TAG" "$FILE" --title "BLLED Plus $TAG" --notes-file "$NOTES" --latest
