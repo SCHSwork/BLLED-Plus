@@ -1098,6 +1098,7 @@ void setupWebserver()
         JsonDocument d;
         d["state"] = suStateName[suState];
         d["busy"] = (bool)suBusy;
+        d["busyFor"] = suBusy ? (long)((millis() - suStartedMs) / 1000) : 0;
         d["running"] = STRVERSION;
         d["latest"] = suLatest;
         d["newer"] = suUpdateAvailable();

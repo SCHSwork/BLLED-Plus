@@ -338,6 +338,14 @@
                 msg.textContent = 'Installing ' + plain(d.latest) + '...';
                 return;
             }
+            if (d.busy && d.busyFor > 60) {
+                // A check should take seconds; something is stuck
+                msg.innerHTML = '';
+                msg.append('Checking GitHub is taking too long. Restart the controller from the status page and try again, or ');
+                const a = document.createElement('a'); a.href = 'https://github.com/SCHSwork/BLLED-Plus/releases/latest'; a.target = '_blank'; a.rel = 'noopener';
+                a.textContent = 'download the file instead'; msg.append(a, '.');
+                btn.hidden = true; return;
+            }
             if (d.busy) { msg.textContent = 'Checking GitHub...'; btn.hidden = true; return; }
             if (d.state === 'installed') { waitRestart(d.latest); return; }
             if (d.state === 'failed') {

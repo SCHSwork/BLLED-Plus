@@ -51,6 +51,7 @@ char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
 char suRolledBack[24] = "";           // shown on the update page after a rollback
 unsigned long suLastCheckMs = 0;
+unsigned long suStartedMs = 0;       // when the running check/download began
 bool suChecked = false;
 
 // Version compare: "v2.8.10" > "2.8.9"
@@ -151,7 +152,9 @@ static bool suFetchLatest(WiFiClientSecure &client)
     }
     http.setUserAgent("BLLED-Plus/" STRVERSION);
     http.addHeader("Accept", "application/vnd.github+json");
+    LogSerial.printf("[Update] Asking GitHub for the latest release (free memory %u KB)\n", ESP.getFreeHeap() / 1024);
     int code = http.GET();
+    LogSerial.printf("[Update] GitHub answered %d\n", code);
     if (code != 200)
     {
         if (code == 404)
@@ -257,6 +260,7 @@ static bool suDownload(WiFiClientSecure &client)
 
     // Only firmware signed with the BLLED Plus release key gets installed
     static uint8_t sig[80];
+    LogSerial.println(F("[Update] Getting the signature"));
     int sigLen = suSigUrl[0] ? suFetchSignature(client, sig, sizeof(sig)) : -2;
     if (sigLen < 8)
     {
@@ -356,6 +360,8 @@ static bool suDownload(WiFiClientSecure &client)
         strlcpy(suError, "The file isn't signed by BLLED Plus, so it wasn't installed", sizeof(suError));
         ok = false;
     }
+    if (ok)
+        LogSerial.println(F("[Update] Signature checks out"));
     if (ok && !Update.end(true))
     {
         snprintf(suError, sizeof(suError), "The file didn't check out: %s", Update.errorString());
@@ -419,6 +425,7 @@ bool suStart(int mode, bool manual)
     if (suBusy || otaActive || shouldRestart || WiFi.status() != WL_CONNECTED)
         return false;
     suBusy = true;
+    suStartedMs = millis();
     suMode = mode;
     suManual = manual;
     if (xTaskCreatePinnedToCore(suTask, "selfUpdate", 12288, NULL, 1, NULL, 1) != pdPASS)
