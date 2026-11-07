@@ -603,3 +603,12 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .ota-steps li.done::before { content: "\2713  "; }
 .ota-hint { color: var(--muted); display: block; }
 @media (prefers-reduced-motion: reduce) { .ota-fill { transition: none; } }
+
+/* Update available (from GitHub releases) */
+.update-note { margin: 0 0 16px; padding: 12px 14px; border-radius: var(--r-ctl, 10px);
+  background: var(--surface, #28313b); color: var(--ink, inherit);
+  box-shadow: inset 3px 0 0 var(--accent, #8fc8f5), inset 0 0 0 1px var(--ring, rgba(255,255,255,.1)); text-align: left; }
+.update-note p { margin: 0; line-height: 1.45; }
+.update-acts { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 6px !important; }
+.update-acts a { color: var(--accent, #8fc8f5); font-weight: 600; }
+.update-acts button { width: auto; min-height: 0; margin: 0; box-shadow: none; flex: none; background: none; border: 0; padding: 0; color: var(--muted, #9ba8b5); font: inherit; cursor: pointer; text-decoration: underline; }

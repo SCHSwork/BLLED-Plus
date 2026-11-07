@@ -259,6 +259,53 @@
         });
     </script>
     <div id="toast"><span id="toast-icon">ℹ️</span><span id="toast-msg">Placeholder</span></div>
+    <script>
+    // Update available: the browser asks GitHub for the latest BLLED Plus release (the controller
+    // itself never goes online for this). Checked at most every 6 hours; quiet if there's no internet.
+    (function () {
+        const REPO = 'SCHSwork/BLLED-Plus', KEY = 'blledLatest', SKIP = 'blledSkip';
+        const get = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+        const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } };
+        const num = v => String(v || '').replace(/^[^0-9]*/, '').split('.').map(n => parseInt(n, 10) || 0);
+        const newer = (a, b) => { a = num(a); b = num(b); for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; };
+        function latest() {
+            const c = get(KEY);
+            if (c && c.tag && Date.now() - c.t < 6 * 3600e3) return Promise.resolve(c);
+            return fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { cache: 'no-store' })
+                .then(r => r.ok ? r.json() : Promise.reject())
+                .then(j => {
+                    const a = (j.assets || []).find(x => /\.ota$/i.test(x.name));
+                    const c = { tag: j.tag_name, url: j.html_url, file: a ? a.browser_download_url : '', name: a ? a.name : '', t: Date.now() };
+                    put(KEY, c); return c;
+                });
+        }
+        function show(fw, rel) {
+            if (!rel || !newer(rel.tag, fw) || get(SKIP) === rel.tag) return;
+            const v = String(rel.tag).replace(/^v/i, '');
+            const onUpdatePage = !!document.getElementById('upload_form');
+            const box = document.createElement('div');
+            box.className = 'update-note'; box.setAttribute('role', 'status');
+            const t = document.createElement('p');
+            t.innerHTML = '<b>BLLED Plus ' + v + ' is available.</b> You have ' + fw + '.';
+            const acts = document.createElement('p'); acts.className = 'update-acts';
+            const link = (href, text, how) => { const a = document.createElement('a'); a.href = href; a.textContent = text; if (how === 'new') { a.target = '_blank'; a.rel = 'noopener'; } acts.appendChild(a); };
+            link(rel.url, "See what's new", 'new');
+            if (onUpdatePage) {
+                if (rel.file) link(rel.file, 'Download ' + (rel.name || 'the update'));
+                t.innerHTML += ' Download the file, then choose it below.';
+            } else link('/fwupdate', 'Update now');
+            const skip = document.createElement('button'); skip.type = 'button'; skip.textContent = 'Not now';
+            skip.onclick = () => { put(SKIP, rel.tag); box.remove(); };
+            acts.appendChild(skip);
+            box.append(t, acts);
+            const at = document.querySelector('.form-container') || document.querySelector('main.page > header') || document.body.firstElementChild;
+            if (at && at.matches('header')) at.after(box); else if (at) at.before(box); else document.body.prepend(box);
+        }
+        fetch('/api/status', { cache: 'no-store' }).then(r => r.json())
+            .then(d => d.fw && latest().then(rel => show(d.fw, rel)))
+            .catch(() => { });
+    })();
+    </script>
 </body>
 
 </html>
