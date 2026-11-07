@@ -1,9 +1,12 @@
 name: Release
-# Pushing a tag like v2.8.6 publishes a GitHub release with firmware/BLLC_V2.8.6.bin.ota attached
-# and firmware/notes-v2.8.6.md as the description.
+# When a new firmware file lands on main (firmware/BLLC_V<version>.bin.ota, version taken from
+# platformio.ini), publish it as a GitHub release, using firmware/notes-v<version>.md as the text.
+# A version that already has a release is left alone.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['firmware/**']
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -14,11 +17,12 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          VER="${TAG#v}"
+          VER=$(sed -n 's/^custom_version *= *//p' platformio.ini | tr -d '[:space:]')
+          TAG="v${VER}"
           FILE="firmware/BLLC_V${VER}.bin.ota"
           NOTES="firmware/notes-${TAG}.md"
-          test -f "$FILE" || { echo "Missing $FILE"; exit 1; }
-          test -f "$NOTES" || echo "Release $TAG" > "$NOTES"
-          gh release create "$TAG" "$FILE" --title "BLLED Plus $TAG" --notes-file "$NOTES" --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG already released"; exit 0; fi
+          test -f "$FILE" || { echo "No $FILE yet - nothing to release"; exit 0; }
+          test -f "$NOTES" || echo "BLLED Plus $TAG" > "$NOTES"
+          gh release create "$TAG" "$FILE" --target "$GITHUB_SHA" --title "BLLED Plus $TAG" --notes-file "$NOTES" --latest
