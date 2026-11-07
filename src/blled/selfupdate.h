@@ -232,14 +232,42 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
     return n;
 }
 
-// True if sig is a valid signature of this SHA-256 hash by the release key
+// True if sig is a valid signature of this SHA-256 hash by the release key. The mbedTLS result
+// codes go to *why (0 = fine) so a failure can be told apart: key, signature or hash.
+static int suKeyRc = 0, suVerifyRc = 0;
 static bool suSignatureOk(const uint8_t hash[32], const uint8_t *sig, size_t sigLen)
 {
     mbedtls_pk_context pk;
     mbedtls_pk_init(&pk);
-    bool ok = mbedtls_pk_parse_public_key(&pk, (const unsigned char *)releaseSigningKey, sizeof(releaseSigningKey)) == 0 &&
-              mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, 32, sig, sigLen) == 0;
+    suKeyRc = mbedtls_pk_parse_public_key(&pk, (const unsigned char *)releaseSigningKey, sizeof(releaseSigningKey));
+    suVerifyRc = suKeyRc ? 0 : mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, 32, sig, sigLen);
     mbedtls_pk_free(&pk);
+    return suKeyRc == 0 && suVerifyRc == 0;
+}
+
+// SHA-256 of the firmware as it was written to the update slot (what would actually run).
+// The updater holds back the first 16 bytes until the end, so those come from 'head'.
+static bool suHashWritten(size_t len, const uint8_t head[16], uint8_t out[32])
+{
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (!part || len < 16)
+        return false;
+    static uint8_t chunk[1024];
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    mbedtls_sha256_starts(&sha, 0);
+    mbedtls_sha256_update(&sha, head, 16);
+    bool ok = true;
+    for (size_t off = 16; off < len && ok;)
+    {
+        size_t n = min(sizeof(chunk), len - off);
+        ok = esp_partition_read(part, off, chunk, n) == ESP_OK;
+        if (ok)
+            mbedtls_sha256_update(&sha, chunk, n);
+        off += n;
+    }
+    mbedtls_sha256_finish(&sha, out);
+    mbedtls_sha256_free(&sha);
     return ok;
 }
 
@@ -269,10 +297,6 @@ static bool suDownload(WiFiClientSecure &client)
         otaActive = false;
         return false;
     }
-    mbedtls_sha256_context sha;
-    mbedtls_sha256_init(&sha);
-    mbedtls_sha256_starts(&sha, 0);
-
     otaTotal = suAssetSize;
     otaBytes = 0;
     otaLastData = millis();
@@ -305,7 +329,6 @@ static bool suDownload(WiFiClientSecure &client)
             snprintf(suError, sizeof(suError), "Download failed (GitHub answered %d)", code);
         http.end();
         Update.abort();
-        mbedtls_sha256_free(&sha);
         suFail(suError);
         selfUpdating = false;
         otaActive = false;
@@ -321,6 +344,7 @@ static bool suDownload(WiFiClientSecure &client)
     unsigned long lastData = millis();
     size_t got = 0;
     bool ok = true;
+    static uint8_t head[16];
     while (len <= 0 || got < (size_t)len)
     {
         size_t avail = s->available();
@@ -335,7 +359,8 @@ static bool suDownload(WiFiClientSecure &client)
                 ok = false;
                 break;
             }
-            mbedtls_sha256_update(&sha, buf, n);
+            for (int i = 0; i < n && got + i < sizeof(head); i++)
+                head[got + i] = buf[i];
             got += n;
             otaBytes = got;
             otaLastData = lastData = millis();
@@ -352,13 +377,25 @@ static bool suDownload(WiFiClientSecure &client)
             vTaskDelay(pdMS_TO_TICKS(5));
     }
     http.end();
-    uint8_t hash[32];
-    mbedtls_sha256_finish(&sha, hash);
-    mbedtls_sha256_free(&sha);
+    if (ok && suAssetSize && got != suAssetSize)
+    {
+        snprintf(suError, sizeof(suError), "Got %u of %u bytes, so it wasn't installed", (unsigned)got, (unsigned)suAssetSize);
+        ok = false;
+    }
+    uint8_t hash[32] = {0};
+    if (ok && !suHashWritten(got, head, hash))
+    {
+        strlcpy(suError, "Couldn't read back the downloaded file", sizeof(suError));
+        ok = false;
+    }
     if (ok && !suSignatureOk(hash, sig, sigLen))
     {
-        strlcpy(suError, "The file isn't signed by BLLED Plus, so it wasn't installed", sizeof(suError));
+        // Details help tell a bad download from a bad signature
+        snprintf(suError, sizeof(suError), "The file isn't signed by BLLED Plus, so it wasn't installed (sig %d bytes %02x%02x, hash %02x%02x%02x%02x, key %d, check %d)",
+                 sigLen, sig[0], sig[1], hash[0], hash[1], hash[2], hash[3], suKeyRc, suVerifyRc);
         ok = false;
+        // Don't keep downloading a release that fails the check
+        strlcpy(suBadTag, suLatest, sizeof(suBadTag));
     }
     if (ok)
         LogSerial.println(F("[Update] Signature checks out"));
