@@ -113,6 +113,13 @@
             <p class="fix-note" id="fixNote">Restarting the controller doesn't affect the printer or a print. Takes about 15 seconds.</p>
         </div>
 
+        <div class="group" id="logCard">
+            <h2>Activity</h2>
+            <pre class="actlog" id="actlog" tabindex="0" aria-label="Recent controller activity">Loading…</pre>
+            <div class="fixes"><button type="button" id="logRefresh">Refresh</button><button type="button" id="logCopy">Copy</button></div>
+            <p class="fix-note">What the controller did recently, newest at the bottom. It's kept through restarts, but not if the power goes off.</p>
+        </div>
+
         <div class="group links">
             <a href="/webserial" target="_blank">Open the log</a>
         </div>
@@ -320,6 +327,27 @@
                 }, 2000);
             } catch (e) { b.disabled = false; b.textContent = 'Couldn’t restart: ' + e.message; }
         });
+
+        // Activity log
+        async function loadLog() {
+            const el = $('actlog');
+            try {
+                const r = await fetch('/api/log', { cache: 'no-store' });
+                const t = (await r.text()).trim();
+                const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+                el.textContent = t || 'Nothing logged yet.';
+                if (atBottom || el.dataset.first !== '1') { el.scrollTop = el.scrollHeight; el.dataset.first = '1'; }
+            } catch (e) { el.textContent = 'Couldn’t load the activity log.'; }
+        }
+        $('logRefresh').addEventListener('click', loadLog);
+        $('logCopy').addEventListener('click', async () => {
+            const b = $('logCopy');
+            try { await navigator.clipboard.writeText($('actlog').textContent); b.textContent = 'Copied'; }
+            catch (e) { const sel = getSelection(), rg = document.createRange(); rg.selectNodeContents($('actlog')); sel.removeAllRanges(); sel.addRange(rg); b.textContent = 'Selected - copy it'; }
+            setTimeout(() => b.textContent = 'Copy', 2000);
+        });
+        loadLog();
+        setInterval(() => { if (!document.hidden) loadLog(); }, 15000);
 
         let retry = 1000;
         function connect() {

@@ -115,6 +115,14 @@ void defaultcolors()
 void setup()
 {
     readRestartReason();
+#ifdef ESP_PLATFORM
+    if (esp_reset_reason() == ESP_RST_POWERON)
+        actLog.magic = 0; // memory is random after power-up: start a fresh activity log
+#endif
+    {
+        String m = "--- Controller started (" + lastRestartWhy + ") ---";
+        activityLogNote(m.c_str());
+    }
     Serial.begin(115200);
     delay(100);
     Serial.println(F("Initializing"));

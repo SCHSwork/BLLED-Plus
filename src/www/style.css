@@ -626,3 +626,7 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .fixes button { flex: 1 1 140px; width: auto; margin: 0; }
 .fixes button.armed { background: var(--warn, #d9822b); color: #fff; }
 .fix-note { margin: 0; padding: 8px 16px 14px; color: var(--muted, #9ba8b5); font-size: 14px; line-height: 1.4; }
+.actlog { margin: 0 16px; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--field, rgba(127,127,127,.08));
+  border-radius: 8px; color: var(--ink, inherit); }
+#logCard .fixes { border-top: 0; }

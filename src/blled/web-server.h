@@ -1061,6 +1061,14 @@ void setupWebserver()
         snprintf(b, sizeof(b), "{\"active\":%s,\"bytes\":%lu,\"total\":%lu}", otaActive ? "true" : "false",
                  (unsigned long)otaBytes, (unsigned long)otaTotal);
         request->send(200, "application/json", b); });
+    // Activity log: recent log lines (kept across restarts)
+    webServer.on("/api/log", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        AsyncWebServerResponse *r = request->beginResponse(200, "text/plain; charset=utf-8", activityLogText());
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r); });
     // Remote fixes from the status page: restart the controller, or just reconnect to the printer
     webServer.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest *request)
                  {
