@@ -154,6 +154,21 @@ void mqttTask(void *parameter)
 
     while (true)
     {
+        if (mqttReconnectNow)
+        {
+            mqttReconnectNow = false;
+            if (mqttClient.connected())
+                mqttClient.disconnect();
+            wifiSecureClient.stop();
+            LogSerial.println(F("[MQTT] Reconnecting to the printer (asked from the status page)"));
+            if (printerVariables.online)
+            {
+                printerVariables.online = false;
+                printerVariables.disconnectMQTTms = millis();
+            }
+            mqttBackoffMs = MQTT_BACKOFF_MIN_MS;
+            mqttNextAttemptMs = millis();
+        }
         if (otaPauseMqtt)
         {
             // Updating from GitHub: give the memory of the printer connection back for a moment

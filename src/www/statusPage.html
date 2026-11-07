@@ -106,6 +106,11 @@
             <div class="stat"><span>Free memory</span><span id="heap">–</span></div>
             <div class="stat"><span>Address</span><span id="addr">–</span></div>
             <div class="stat"><span>Firmware</span><span id="fw">–</span></div>
+            <div class="fixes">
+                <button type="button" id="reconnectBtn">Reconnect to printer</button>
+                <button type="button" id="restartBtn">Restart controller</button>
+            </div>
+            <p class="fix-note" id="fixNote">Restarting the controller doesn't affect the printer or a print. Takes about 15 seconds.</p>
         </div>
 
         <div class="group links">
@@ -279,6 +284,41 @@
                 b.disabled = false;
                 b.textContent = 'Couldn’t save: ' + e.message;
             }
+        });
+
+        // Remote fixes: reconnect to the printer, or restart the controller (tap twice to confirm)
+        $('reconnectBtn').addEventListener('click', async () => {
+            const b = $('reconnectBtn');
+            b.disabled = true; b.textContent = 'Reconnecting…';
+            try { await post('/api/reconnect', {}); setTimeout(() => { b.disabled = false; b.textContent = 'Reconnect to printer'; }, 6000); }
+            catch (e) { b.disabled = false; b.textContent = 'Couldn’t: ' + e.message; }
+        });
+        let restartArmed = null;
+        $('restartBtn').addEventListener('click', async () => {
+            const b = $('restartBtn');
+            if (!restartArmed) {
+                b.textContent = 'Tap again to confirm'; b.classList.add('armed');
+                restartArmed = setTimeout(() => { restartArmed = null; b.textContent = 'Restart controller'; b.classList.remove('armed'); }, 4000);
+                return;
+            }
+            clearTimeout(restartArmed); restartArmed = null;
+            b.disabled = true; b.classList.remove('armed'); b.textContent = 'Restarting…';
+            try {
+                await post('/api/restart', {});
+                $('fixNote').textContent = 'Restarting. This page reconnects by itself.';
+                const t0 = Date.now();
+                const iv = setInterval(() => {
+                    if (Date.now() - t0 < 6000) return;
+                    fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).then(d => {
+                        if (d.uptime !== undefined && d.uptime < 120) {
+                            clearInterval(iv); render(d);
+                            b.disabled = false; b.textContent = 'Restart controller';
+                            $('fixNote').textContent = 'Restarted. Back up and running.';
+                        }
+                    }).catch(() => { });
+                    if (Date.now() - t0 > 120000) { clearInterval(iv); b.disabled = false; b.textContent = 'Restart controller'; $('fixNote').textContent = 'It hasn’t come back yet. Give it a minute, or unplug it and plug it back in.'; }
+                }, 2000);
+            } catch (e) { b.disabled = false; b.textContent = 'Couldn’t restart: ' + e.message; }
         });
 
         let retry = 1000;

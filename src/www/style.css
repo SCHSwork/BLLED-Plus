@@ -620,3 +620,9 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .gh-msg a { color: var(--accent, #8fc8f5); font-weight: 600; }
 .gh-small { margin: 8px 0 0; color: var(--muted, #9ba8b5); font-size: 14px; line-height: 1.4; }
 .gh-small:empty { display: none; }
+
+/* Status page: remote fixes */
+.fixes { display: flex; gap: 10px; padding: 14px 16px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.fixes button { flex: 1 1 140px; width: auto; margin: 0; }
+.fixes button.armed { background: var(--warn, #d9822b); color: #fff; }
+.fix-note { margin: 0; padding: 8px 16px 14px; color: var(--muted, #9ba8b5); font-size: 14px; line-height: 1.4; }

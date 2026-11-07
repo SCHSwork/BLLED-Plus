@@ -1061,6 +1061,27 @@ void setupWebserver()
         snprintf(b, sizeof(b), "{\"active\":%s,\"bytes\":%lu,\"total\":%lu}", otaActive ? "true" : "false",
                  (unsigned long)otaBytes, (unsigned long)otaTotal);
         request->send(200, "application/json", b); });
+    // Remote fixes from the status page: restart the controller, or just reconnect to the printer
+    webServer.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        if (otaActive)
+            return request->send(409, "text/plain", "An update is installing - wait for it to finish");
+        noteRestart("Restarted from the status page");
+        shouldRestart = true;
+        restartRequestTime = millis();
+        request->send(200, "text/plain", "Restarting"); });
+    webServer.on("/api/reconnect", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        mqttReconnectNow = true;
+        request->send(200, "text/plain", "Reconnecting"); });
     // Updates from GitHub: state, and check / install on request
     webServer.on("/api/github-update", HTTP_GET, [](AsyncWebServerRequest *request)
                  {
