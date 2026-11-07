@@ -43,7 +43,7 @@ volatile bool suBusy = false;         // a check or download is running
 char suLatest[24] = "";               // latest release tag on GitHub, e.g. "v2.8.5"
 char suAssetUrl[200] = "";
 uint32_t suAssetSize = 0;
-char suError[96] = "";
+char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
 char suRolledBack[24] = "";           // shown on the update page after a rollback
 unsigned long suLastCheckMs = 0;
@@ -125,9 +125,9 @@ static void suFail(const char *why)
 }
 
 // Free up memory for HTTPS: the printer connection also uses TLS. Drop it if memory is tight.
-static void suMakeRoom()
+static void suMakeRoom(bool always)
 {
-    if (ESP.getMaxAllocHeap() > 50000 && ESP.getFreeHeap() > 90000)
+    if (!always && ESP.getMaxAllocHeap() > 50000 && ESP.getFreeHeap() > 90000)
         return;
     otaPauseMqtt = true;
     for (int i = 0; i < 30 && printerVariables.online; i++)
@@ -198,44 +198,54 @@ static bool suDownload(WiFiClientSecure &client)
         suFail("That release has no .bin.ota file attached");
         return false;
     }
+    // The download needs a lot of memory: always close the printer connection first (it comes
+    // back after), and set up the install before the download connection takes its share
+    client.stop();
+    suState = SU_DOWNLOADING;
+    otaActive = true; // pauses the self-check and the update page's upload handling
+    selfUpdating = true;
+    suMakeRoom(true);
+    otaTotal = suAssetSize;
+    otaBytes = 0;
+    otaLastData = millis();
+    if (Update.isRunning())
+        Update.abort();
+    if (!Update.begin(suAssetSize > 0 ? (size_t)suAssetSize : UPDATE_SIZE_UNKNOWN))
+    {
+        snprintf(suError, sizeof(suError), "Couldn't start installing: %s (free memory %u KB, largest block %u KB)",
+                 Update.getError() ? Update.errorString() : "out of memory", ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
+        suFail(suError);
+        selfUpdating = false;
+        otaActive = false;
+        return false;
+    }
     HTTPClient http;
     http.useHTTP10(true);
     http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // GitHub sends the file from its download servers
-    if (!http.begin(client, suAssetUrl))
+    int code = -1;
+    if (http.begin(client, suAssetUrl))
     {
-        suFail("Couldn't start the download");
-        return false;
+        http.setUserAgent("BLLED-Plus/" STRVERSION);
+        code = http.GET();
     }
-    http.setUserAgent("BLLED-Plus/" STRVERSION);
-    int code = http.GET();
     if (code != 200)
     {
-        snprintf(suError, sizeof(suError), "Download failed (%d)", code);
-        suFail(suError);
+        if (code < 0)
+            snprintf(suError, sizeof(suError), "Download failed: %s (free memory %u KB)", HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap() / 1024);
+        else
+            snprintf(suError, sizeof(suError), "Download failed (GitHub answered %d)", code);
         http.end();
+        Update.abort();
+        suFail(suError);
+        selfUpdating = false;
+        otaActive = false;
         return false;
     }
     int len = http.getSize();
     if (len <= 0)
         len = suAssetSize;
-    if (Update.isRunning())
-        Update.abort();
     otaTotal = len > 0 ? len : 0;
-    otaBytes = 0;
-    otaLastData = millis();
-    otaActive = true; // pauses the self-check and the update page's upload handling
-    selfUpdating = true;
-    suState = SU_DOWNLOADING;
-    if (!Update.begin(len > 0 ? (size_t)len : UPDATE_SIZE_UNKNOWN))
-    {
-        snprintf(suError, sizeof(suError), "Couldn't start installing: %s", Update.errorString());
-        suFail(suError);
-        http.end();
-        selfUpdating = false;
-        otaActive = false;
-        return false;
-    }
     LogSerial.printf("[Update] Downloading %s (%d bytes)\n", suLatest, len);
     WiFiClient *s = http.getStreamPtr();
     static uint8_t buf[1460];
@@ -306,7 +316,7 @@ static void suTask(void *)
 {
     suState = SU_CHECKING;
     suError[0] = 0;
-    suMakeRoom();
+    suMakeRoom(false);
     {
         WiFiClientSecure client;
         client.setCACertBundle(certBundle);
