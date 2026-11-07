@@ -612,3 +612,11 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .update-acts { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 6px !important; }
 .update-acts a { color: var(--accent, #8fc8f5); font-weight: 600; }
 .update-acts button { width: auto; min-height: 0; margin: 0; box-shadow: none; flex: none; background: none; border: 0; padding: 0; color: var(--muted, #9ba8b5); font: inherit; cursor: pointer; text-decoration: underline; }
+
+/* Update from GitHub card (update page) */
+.gh { margin-bottom: 16px; }
+.gh-title { margin: 0 0 6px; font-size: 18px; }
+.gh-msg { margin: 0 0 10px; line-height: 1.45; }
+.gh-msg a { color: var(--accent, #8fc8f5); font-weight: 600; }
+.gh-small { margin: 8px 0 0; color: var(--muted, #9ba8b5); font-size: 14px; line-height: 1.4; }
+.gh-small:empty { display: none; }

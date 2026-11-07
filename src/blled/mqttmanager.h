@@ -154,6 +154,24 @@ void mqttTask(void *parameter)
 
     while (true)
     {
+        if (otaPauseMqtt)
+        {
+            // Updating from GitHub: give the memory of the printer connection back for a moment
+            if (mqttClient.connected())
+            {
+                mqttClient.disconnect();
+                wifiSecureClient.stop();
+                LogSerial.println(F("[MQTT] Paused for the firmware download"));
+            }
+            if (printerVariables.online)
+            {
+                printerVariables.online = false;
+                printerVariables.disconnectMQTTms = millis();
+            }
+            mqttNextAttemptMs = millis();
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
         if (otaActive)
         {
             // Firmware update uploading: stay out of its way (no TLS work, no parsing)

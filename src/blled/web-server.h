@@ -14,6 +14,7 @@ AsyncWebServer webServer(80);
 AsyncWebSocket ws("/ws");
 
 #include "../www/www.h"
+#include "selfupdate.h"
 
 unsigned long lastWsPush = 0;
 const unsigned long wsPushInterval = 1000; // alle 1000ms
@@ -235,6 +236,12 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["idleOffMins"] = printerConfig.idleOffMins;
     // Quiet hours (times as HH:MM for <input type=time>)
     char hm[16];
+    doc["autoUpdate"] = printerConfig.autoUpdate;
+    doc["autoUpdateWindow"] = printerConfig.autoUpdateWindow;
+    snprintf(hm, sizeof(hm), "%02d:%02d", printerConfig.autoUpdateStart / 60, printerConfig.autoUpdateStart % 60);
+    doc["autoUpdateStart"] = hm;
+    snprintf(hm, sizeof(hm), "%02d:%02d", printerConfig.autoUpdateEnd / 60, printerConfig.autoUpdateEnd % 60);
+    doc["autoUpdateEnd"] = hm;
     doc["quietEnabled"] = printerConfig.quietEnabled;
     snprintf(hm, sizeof(hm), "%02d:%02d", printerConfig.quietStart / 60, printerConfig.quietStart % 60);
     doc["quietStart"] = hm;
@@ -417,6 +424,10 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
             return fallback;
         return h * 60 + m;
     };
+    printerConfig.autoUpdate = request->hasParam("autoUpdate", true);
+    printerConfig.autoUpdateWindow = request->hasParam("autoUpdateWindow", true);
+    printerConfig.autoUpdateStart = parseHM(getSafeParamValue(request, "autoUpdateStart"), printerConfig.autoUpdateStart);
+    printerConfig.autoUpdateEnd = parseHM(getSafeParamValue(request, "autoUpdateEnd"), printerConfig.autoUpdateEnd);
     printerConfig.quietEnabled = request->hasParam("quietEnabled", true);
     printerConfig.quietStart = parseHM(getSafeParamValue(request, "quietStart"), printerConfig.quietStart);
     printerConfig.quietEnd = parseHM(getSafeParamValue(request, "quietEnd"), printerConfig.quietEnd);
@@ -1050,6 +1061,39 @@ void setupWebserver()
         snprintf(b, sizeof(b), "{\"active\":%s,\"bytes\":%lu,\"total\":%lu}", otaActive ? "true" : "false",
                  (unsigned long)otaBytes, (unsigned long)otaTotal);
         request->send(200, "application/json", b); });
+    // Updates from GitHub: state, and check / install on request
+    webServer.on("/api/github-update", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        JsonDocument d;
+        d["state"] = suStateName[suState];
+        d["busy"] = (bool)suBusy;
+        d["running"] = STRVERSION;
+        d["latest"] = suLatest;
+        d["newer"] = suUpdateAvailable();
+        d["hasFile"] = suAssetUrl[0] != 0;
+        d["error"] = suError;
+        d["rolledBack"] = suRolledBack;
+        d["bad"] = suBadTag;
+        d["bytes"] = (unsigned long)otaBytes;
+        d["total"] = (unsigned long)otaTotal;
+        d["auto"] = printerConfig.autoUpdate;
+        d["checkedAgo"] = suChecked ? (long)((millis() - suLastCheckMs) / 1000) : -1;
+        String out;
+        serializeJson(d, out);
+        request->send(200, "application/json", out); });
+    webServer.on("/api/github-update", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        String what = request->hasParam("do", true) ? request->getParam("do", true)->value() : "check";
+        int mode = what == "install" ? 1 : what == "reinstall" ? 2 : 0;
+        if (!suStart(mode, true))
+            return request->send(409, "text/plain", suBusy ? "Already working on it" : "Busy right now - try again in a moment");
+        request->send(202, "text/plain", "Started"); });
     webServer.on("/api/useDiscoveredSerial", HTTP_POST, handleUseDiscoveredSerial);
     webServer.on("/api/quick", HTTP_POST, handleQuick);
     webServer.on("/api/preview", HTTP_POST, handlePreview);

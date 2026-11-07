@@ -159,6 +159,10 @@ void saveFileSystem()
     json["idleDimEnabled"] = printerConfig.idleDimEnabled;
     json["idleDimLevel"] = printerConfig.idleDimLevel;
     json["idleOffMins"] = printerConfig.idleOffMins;
+    json["autoUpdate"] = printerConfig.autoUpdate;
+    json["autoUpdateWindow"] = printerConfig.autoUpdateWindow;
+    json["autoUpdateStart"] = printerConfig.autoUpdateStart;
+    json["autoUpdateEnd"] = printerConfig.autoUpdateEnd;
     // Quiet hours
     json["quietEnabled"] = printerConfig.quietEnabled;
     json["quietStart"] = printerConfig.quietStart;
@@ -306,6 +310,10 @@ void loadFileSystem()
         printerConfig.idleDimEnabled = json["idleDimEnabled"] | true;
         printerConfig.idleDimLevel = constrain((int)(json["idleDimLevel"] | 15), 1, 90);
         printerConfig.idleOffMins = constrain((int)(json["idleOffMins"] | 60), 0, 999);
+        printerConfig.autoUpdate = json["autoUpdate"] | false;
+        printerConfig.autoUpdateWindow = json["autoUpdateWindow"] | false;
+        printerConfig.autoUpdateStart = constrain((int)(json["autoUpdateStart"] | 2 * 60), 0, 1439);
+        printerConfig.autoUpdateEnd = constrain((int)(json["autoUpdateEnd"] | 5 * 60), 0, 1439);
         // Quiet hours
         printerConfig.quietEnabled = json["quietEnabled"] | false;
         printerConfig.quietStart = constrain((int)(json["quietStart"] | 23 * 60), 0, 1439);

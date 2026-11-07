@@ -3,6 +3,8 @@
 // A firmware update is uploading: the printer connection and the settings-page self-check pause
 // so the controller can give the upload its full attention
 inline volatile bool otaActive = false;
+inline volatile bool otaPauseMqtt = false; // self-update needs the memory: drop the printer's TLS connection
+inline volatile bool selfUpdating = false; // downloading an update from GitHub
 inline volatile unsigned long otaLastData = 0;
 inline volatile unsigned long otaBytes = 0, otaTotal = 0; // received so far / expected size
 #define _TYPES
@@ -202,6 +204,10 @@ extern "C"
         int idleOffMins = 60;           // then turn off after this many more minutes (0 = stay dim)
 
         // Quiet hours: dim (or turn off) the strip during a nightly window
+        bool autoUpdate = false;        // install new BLLED Plus releases from GitHub by itself
+        bool autoUpdateWindow = false;  // ...only inside a time window
+        int autoUpdateStart = 2 * 60;   // minutes after midnight
+        int autoUpdateEnd = 5 * 60;
         bool quietEnabled = false;
         int quietStart = 23 * 60;       // minutes after midnight
         int quietEnd = 7 * 60;

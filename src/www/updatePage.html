@@ -17,6 +17,18 @@
             <h1>Update firmware</h1>
         </div>
 
+        <div class="form-container gh" id="ghCard">
+            <h2 class="gh-title">Update from GitHub</h2>
+            <p class="gh-msg" id="ghMsg">Checking for a new version...</p>
+            <div id="ghBox" class="ota" hidden>
+                <div class="ota-top"><b id="ghPct">0%</b><span id="ghStep">Downloading</span></div>
+                <div class="ota-track"><div class="ota-fill" id="ghFill"></div></div>
+                <div class="ota-sub" id="ghSub">The controller is downloading it itself.</div>
+            </div>
+            <button type="button" id="ghInstall" hidden>Install</button>
+            <p class="gh-small" id="ghSmall"></p>
+        </div>
+
         <div class="form-container">
             <form enctype="multipart/form-data" id="upload_form" method="post">
                 <label for="file1">Select .bin.ota File</label>
@@ -280,6 +292,7 @@
                 });
         }
         function show(fw, rel) {
+            if (document.getElementById('ghCard')) return; // this page has the GitHub card instead
             if (!rel || !newer(rel.tag, fw) || get(SKIP) === rel.tag) return;
             const v = String(rel.tag).replace(/^v/i, '');
             const onUpdatePage = !!document.getElementById('upload_form');
@@ -304,6 +317,80 @@
         fetch('/api/status', { cache: 'no-store' }).then(r => r.json())
             .then(d => d.fw && latest().then(rel => show(d.fw, rel)))
             .catch(() => { });
+    })();
+    </script>
+    <script>
+    // Update from GitHub: the controller downloads and installs the release itself
+    (function () {
+        const $g = id => document.getElementById(id);
+        const plain = v => String(v || '').replace(/^v/i, '');
+        let poll = null, installing = false, fwStart = null, sawDown = false, t0 = 0;
+        function ago(s) { return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago'; }
+        function show(d) {
+            const btn = $g('ghInstall'), msg = $g('ghMsg'), small = $g('ghSmall');
+            small.textContent = '';
+            if (d.rolledBack) small.textContent = plain(d.rolledBack) + " didn't start properly, so the controller went back to " + d.running + ". It won't install " + plain(d.rolledBack) + " automatically.";
+            if (d.busy && d.state === 'downloading') {
+                installing = true; btn.hidden = true; $g('ghBox').hidden = false;
+                const pct = d.total ? Math.min(100, Math.floor(d.bytes * 100 / d.total)) : 0;
+                $g('ghPct').textContent = pct + '%'; $g('ghFill').style.width = pct + '%';
+                $g('ghSub').textContent = Math.round(d.bytes / 1024) + ' of ' + Math.round(d.total / 1024) + ' KB. You can close this page - it keeps going.';
+                msg.textContent = 'Installing ' + plain(d.latest) + '...';
+                return;
+            }
+            if (d.busy) { msg.textContent = 'Checking GitHub...'; btn.hidden = true; return; }
+            if (d.state === 'installed') { waitRestart(d.latest); return; }
+            if (d.state === 'failed') {
+                $g('ghBox').hidden = true; installing = false;
+                msg.innerHTML = '';
+                msg.append('Couldn\'t update from GitHub: ' + d.error + '. ');
+                const a = document.createElement('a'); a.href = 'https://github.com/SCHSwork/BLLED-Plus/releases/latest'; a.target = '_blank'; a.rel = 'noopener';
+                a.textContent = 'Download the file instead'; msg.append(a);
+                btn.hidden = false; btn.textContent = d.newer ? 'Try again' : 'Check again'; btn.dataset.do = d.newer ? 'install' : 'check';
+                return;
+            }
+            if (!d.latest) { msg.textContent = 'Checking for a new version...'; return; }
+            if (d.newer) {
+                msg.innerHTML = '<b>BLLED Plus ' + plain(d.latest) + ' is available.</b> You have ' + d.running + '.';
+                if (!d.hasFile) { msg.append(' The release has no .bin.ota file attached yet.'); btn.hidden = true; return; }
+                btn.hidden = false; btn.textContent = 'Install ' + plain(d.latest); btn.dataset.do = 'install';
+                small.textContent = (small.textContent ? small.textContent + ' ' : '') + 'Takes about a minute. The lights keep working on the old version until it restarts.';
+            } else {
+                msg.textContent = "You're up to date (" + d.running + '). Checked ' + ago(d.checkedAgo) + '.';
+                btn.hidden = false; btn.textContent = 'Check again'; btn.dataset.do = 'check';
+            }
+        }
+        function refresh() { return fetch('/api/github-update', { cache: 'no-store' }).then(r => r.json()).then(d => { show(d); return d; }); }
+        function start(what) {
+            const f = new FormData(); f.append('do', what);
+            return fetch('/api/github-update', { method: 'POST', body: f }).then(r => {
+                if (!r.ok) return r.text().then(t => { $g('ghMsg').textContent = t; });
+                if (!poll) poll = setInterval(() => refresh().then(d => { if (!d.busy && d.state !== 'installed') { clearInterval(poll); poll = null; } }).catch(() => { }), 1000);
+            });
+        }
+        function waitRestart(tag) {
+            if (poll) { clearInterval(poll); poll = null; }
+            $g('ghInstall').hidden = true; $g('ghBox').hidden = false;
+            $g('ghPct').textContent = '100%'; $g('ghFill').style.width = '100%'; $g('ghStep').textContent = 'Restarting';
+            $g('ghSub').textContent = 'Installed. Restarting into ' + plain(tag) + '...';
+            t0 = Date.now();
+            const iv = setInterval(() => {
+                fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).then(d => {
+                    if (d.fw === plain(tag)) {
+                        clearInterval(iv); $g('ghStep').textContent = 'Done';
+                        $g('ghSub').textContent = 'Running ' + d.fw + '.';
+                        $g('ghMsg').textContent = 'Updated to ' + d.fw + '.';
+                    } else if (Date.now() - t0 > 150000) {
+                        clearInterval(iv); $g('ghMsg').textContent = 'Still on ' + d.fw + " - the new version didn't start, so the controller kept the old one.";
+                    }
+                }).catch(() => { });
+            }, 2000);
+        }
+        $g('ghInstall').onclick = () => start($g('ghInstall').dataset.do || 'check');
+        refresh().then(d => {
+            if (d.busy) { if (!poll) poll = setInterval(() => refresh().catch(() => { }), 1000); }
+            else if (d.checkedAgo < 0 || d.checkedAgo > 600) start('check');
+        }).catch(() => { $g('ghMsg').textContent = "Couldn't ask the controller about updates."; });
     })();
     </script>
 </body>

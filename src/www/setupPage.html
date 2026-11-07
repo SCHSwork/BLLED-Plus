@@ -194,6 +194,27 @@
                     </div>
                 </div>
             </div>
+
+            <div class="group">
+                <h2>Updates</h2>
+                <label class="row">
+                    <span class="txt"><b>Install new versions automatically</b><small>The controller downloads new BLLED Plus releases from GitHub itself, only while the printer isn't printing. If a new version doesn't start properly, it goes back to the old one.</small></span>
+                    <input type="checkbox" class="tog" id="autoUpdate" name="autoUpdate">
+                </label>
+                <div data-show-if="autoUpdate">
+                    <label class="row sub">
+                        <span class="txt"><b>Only at certain times</b><small>Uses the time zone under Quiet hours.</small></span>
+                        <input type="checkbox" class="tog" id="autoUpdateWindow" name="autoUpdateWindow">
+                    </label>
+                    <div class="row" data-show-if="autoUpdateWindow">
+                        <label for="autoUpdateStart" style="flex:none;margin:0;font-weight:600">From</label>
+                        <input type="time" id="autoUpdateStart" name="autoUpdateStart" value="02:00" style="flex:1;min-width:0">
+                        <label for="autoUpdateEnd" class="unit" style="flex:none;margin:0">to</label>
+                        <input type="time" id="autoUpdateEnd" name="autoUpdateEnd" value="05:00" style="flex:1;min-width:0">
+                    </div>
+                </div>
+                <p class="row"><a href="/fwupdate" style="color:var(--accent);font-weight:600">Check for updates now</a></p>
+            </div>
         </section>
 
         <!-- Print stages -->
@@ -579,7 +600,8 @@
                     timelapseSteady: c.timelapseSteady !== false, heatGlowFx: c.heatGlowFx, celebrateFx: c.celebrateFx,
                     coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight,
                     almostDoneEnabled: c.almostDoneEnabled, firstLayerSpotlight: c.firstLayerSpotlight !== false,
-                    needsYouEnabled: c.needsYouEnabled !== false, idleDimEnabled: c.idleDimEnabled !== false
+                    needsYouEnabled: c.needsYouEnabled !== false, idleDimEnabled: c.idleDimEnabled !== false,
+                    autoUpdate: !!c.autoUpdate, autoUpdateWindow: !!c.autoUpdateWindow
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 
@@ -602,6 +624,8 @@
                 $('idleDimLevel').value = num(c.idleDimLevel, 15);
                 $('idleOffMins').value = num(c.idleOffMins, 60);
                 idleDimOut();
+                $('autoUpdateStart').value = c.autoUpdateStart || '02:00';
+                $('autoUpdateEnd').value = c.autoUpdateEnd || '05:00';
                 $('quietStart').value = c.quietStart || '23:00';
                 $('quietEnd').value = c.quietEnd || '07:00';
                 $('quietBrightness').value = num(c.quietBrightness, 10);

@@ -118,6 +118,7 @@ void setup()
     Serial.begin(115200);
     delay(100);
     Serial.println(F("Initializing"));
+    suBootCheck(); // did an update from GitHub come up, or did the previous version have to take over?
     Serial.println(ESP.getFreeHeap());
     Serial.println("");
     Serial.print(F("** Using firmware version: "));
@@ -265,6 +266,7 @@ void loop()
         {
             Serial.println(F("[WiFiManager] Saved Wi-Fi is back - restarting into normal operation"));
             noteRestart("Wi-Fi came back after start-up");
+            suConfirmFirmware();
             delay(200);
             ESP.restart();
         }
@@ -276,6 +278,7 @@ void loop()
         if (!someoneOnHotspot && millis() - rescueSinceMs > 600000UL)
         {
             noteRestart("Wi-Fi not found at start-up, retried");
+            suConfirmFirmware();
             ESP.restart();
         }
     }
@@ -300,15 +303,18 @@ void loop()
         updateleds();
     }
     // An upload that stopped arriving (closed page, lost Wi-Fi) shouldn't keep things paused
-    if (otaActive && !shouldRestart && millis() - otaLastData > 20000)
+    if (otaActive && !selfUpdating && !shouldRestart && millis() - otaLastData > 20000)
     {
         LogSerial.println(F("[OTA] Upload stopped arriving - resuming normal work"));
         if (Update.isRunning())
             Update.abort(); // so the next upload starts clean
         otaActive = false;
     }
+    selfUpdateLoop();
+
     if (shouldRestart && millis() - restartRequestTime > 3000)
     {
+        suConfirmFirmware(); // a planned restart: this version works, so don't roll it back
         LogSerial.println(F("[WiFiSetup] Restarting now..."));
         if (restartNoteMagic != 0xB11ED001)
             noteRestart("Settings saved or update");

@@ -20,6 +20,12 @@ Works from the official BLLED firmware or an older BLLED Plus. Your settings car
 
 **Going back:** upload an official BLLED firmware file the same way.
 
+### Updates from GitHub (2.8.5 and newer)
+
+Once you're on 2.8.5, you don't need to download anything: open the update page and tap **Install**. The controller downloads the new release from GitHub itself.
+
+To have it update by itself, turn on **Install new versions automatically** under **Updates** in the settings. It only installs while the printer isn't printing, and you can limit it to certain hours. If a new version doesn't start properly, the controller goes back to the version it had and won't try that release again on its own.
+
 ### Set up a brand-new controller
 
 1. Flash the official firmware with the [BLLED web flasher](https://dutchdevelop.github.io/blledsetup/) (Chrome or Edge on a computer, controller plugged in over USB).
