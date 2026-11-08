@@ -142,6 +142,9 @@ void setup()
     setupFileSystem();
     loadFileSystem();
     applyPwmMode();
+#ifdef BLLED_MIGRATE_TEST
+    lmTestRun();
+#endif
     Serial.println(F(""));
 
     tweenToColor(printerConfig.wifiRGB); // Customisable - Default is ORANGE
@@ -321,6 +324,9 @@ void loop()
         otaActive = false;
     }
     selfUpdateLoop();
+#ifdef BLLED_LITE
+    lmLoop();
+#endif
 
     if (shouldRestart && millis() - restartRequestTime > 3000)
     {

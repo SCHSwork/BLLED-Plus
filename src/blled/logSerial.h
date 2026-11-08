@@ -2,7 +2,22 @@
 #define LOGSERIAL_H
 
 #include <Arduino.h>
+#ifndef BLLED_LITE
 #include <MycilaWebSerial.h>
+#else
+// Lite edition: no live web log page (it doesn't fit); the status page's Activity log covers it
+#include <string>
+#include <functional>
+class AsyncWebServer;
+struct WebSerial
+{
+  void begin(AsyncWebServer *) {}
+  void setBuffer(size_t) {}
+  void onMessage(std::function<void(const std::string &)>) {}
+  void setAuthentication(const char *, const char *) {}
+  void write(const uint8_t *, size_t) {}
+};
+#endif
 
 class AsyncWebServer;
 

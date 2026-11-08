@@ -15,6 +15,9 @@ AsyncWebSocket ws("/ws");
 
 #include "../www/www.h"
 #include "selfupdate.h"
+#ifdef BLLED_LITE
+#include "layoutmigrate.h"
+#endif
 
 unsigned long lastWsPush = 0;
 const unsigned long wsPushInterval = 1000; // alle 1000ms
@@ -865,6 +868,11 @@ void handleDownloadConfigFile(AsyncWebServerRequest *request)
 }
 
 void handleWebSerialPage(AsyncWebServerRequest *request)
+#ifdef BLLED_LITE
+{
+    request->redirect("/status#logCard"); // lite edition: the status page's Activity log instead
+}
+#else
 {
     if (!isAuthorized(request))
         return request->requestAuthentication();
@@ -872,6 +880,7 @@ void handleWebSerialPage(AsyncWebServerRequest *request)
     response->addHeader("Content-Encoding", "gzip");
     request->send(response);
 }
+#endif
 
 void handlePrinterList(AsyncWebServerRequest *request)
 {
@@ -1099,6 +1108,33 @@ void setupWebserver()
             return refuseForeign(request);
         mqttReconnectNow = true;
         request->send(200, "text/plain", "Reconnecting"); });
+#ifdef BLLED_LITE
+    // Moving to the larger storage layout (lite edition on the original layout only)
+    webServer.on("/api/layout", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        JsonDocument d;
+        d["oldLayout"] = lmOnOldLayout();
+        d["busy"] = (bool)lmBusy;
+        d["step"] = lmStep;
+        d["error"] = lmError;
+        d["done"] = lmDone;
+        d["bytes"] = (unsigned long)otaBytes;
+        d["total"] = (unsigned long)otaTotal;
+        String out;
+        serializeJson(d, out);
+        request->send(200, "application/json", out); });
+    webServer.on("/api/layout", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        if (!lmStart())
+            return request->send(409, "text/plain", lmOnOldLayout() ? "Busy right now (an update may be running) - try again in a moment" : "Already on the larger layout");
+        request->send(202, "text/plain", "Started"); });
+#endif
     // Updates from GitHub: state, and check / install on request
     webServer.on("/api/github-update", HTTP_GET, [](AsyncWebServerRequest *request)
                  {

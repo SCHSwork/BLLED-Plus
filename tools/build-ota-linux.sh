@@ -6,8 +6,9 @@ set -euo pipefail
 W=${1:-$HOME/esp}; REPO=$(cd "$(dirname "$0")/.." && pwd)
 VER=$(sed -n 's/^custom_version = \([0-9.]*\).*/\1/p' "$REPO/platformio.ini")
 # EDITION=lite builds the smaller edition for controllers on the original BLLED layout
-EDITION=${EDITION:-full}; EXTRA=""; SUFFIX=""
-if [ "$EDITION" = lite ]; then EXTRA="-DBLLED_LITE"; SUFFIX="-lite"; fi
+EDITION=${EDITION:-full}; EXTRA="${EXTRA_FLAGS:-}"; SUFFIX=""
+VER=${VER_OVERRIDE:-$VER}
+if [ "$EDITION" = lite ]; then EXTRA="$EXTRA -DBLLED_LITE"; SUFFIX="-lite"; fi
 mkdir -p "$W" && cd "$W"
 [ -d esp32-2.0.17 ] || { curl -sSL -o core.zip https://github.com/espressif/arduino-esp32/releases/download/2.0.17/esp32-2.0.17.zip; unzip -q core.zip; }
 [ -d xtensa-esp32-elf ] || curl -sSL https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-linux-amd64.tar.gz | tar xz

@@ -45,7 +45,8 @@ volatile bool suManual = false;       // started from the update page (may insta
 volatile bool suBusy = false;         // a check or download is running
 char suLatest[24] = "";               // latest release tag on GitHub, e.g. "v2.8.5"
 char suAssetUrl[200] = "";
-char suSigUrl[200] = "";               // the release's signature file
+char suSigUrl[200] = "";
+bool suForceFull = false;             // moving to the larger layout: fetch the full edition               // the release's signature file
 uint32_t suAssetSize = 0;
 char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
@@ -210,7 +211,7 @@ static bool suFetchLatest(WiFiClientSecure &client)
                 fullSig = url;
         }
     }
-    bool useFull = fullUrl.length() && (!room || fullSize <= room || liteUrl.isEmpty());
+    bool useFull = fullUrl.length() && (suForceFull || !room || fullSize <= room || liteUrl.isEmpty());
     strlcpy(suAssetUrl, (useFull ? fullUrl : liteUrl).c_str(), sizeof(suAssetUrl));
     strlcpy(suSigUrl, (useFull ? fullSig : liteSig).c_str(), sizeof(suSigUrl));
     suAssetSize = useFull ? fullSize : liteSize;

@@ -6,6 +6,8 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <Preferences.h>
+#include "esp_ota_ops.h"
 #include "types.h"
 
 const char *configPath = "/blledconfig.json";
@@ -34,6 +36,35 @@ void recoverConfig()
         if (LittleFS.exists(configTmpPath))
             LittleFS.remove(configTmpPath); // a save that was cut short; the current file is fine
         return;
+    }
+    // Moved to the larger layout? The settings were kept in NVS for the move
+    {
+        Preferences p;
+        if (p.begin("blledmig", false))
+        {
+            size_t n = p.getBytesLength("cfg");
+            if (n > 10 && n <= 6000)
+            {
+                static uint8_t cfg[6000];
+                p.getBytes("cfg", cfg, n);
+                File f = LittleFS.open(configPath, "w");
+                if (f)
+                {
+                    f.write(cfg, n);
+                    f.close();
+                }
+                if (configFileValid(configPath))
+                {
+                    LogSerial.println(F("[Filesystem] Restored your settings after moving to the larger layout"));
+                    const esp_partition_t *run = esp_ota_get_running_partition();
+                    if (run && run->size > 0x140000)
+                        p.remove("cfg"); // moved for good: no need to keep the copy
+                    p.end();
+                    return;
+                }
+            }
+            p.end();
+        }
     }
     const char *backups[] = {configTmpPath, configBakPath};
     for (const char *b : backups)
@@ -417,9 +448,14 @@ void setupFileSystem()
         LogSerial.println(F("[Filesystem] Failed to mount LittleFS"));
         LittleFS.format();
         LogSerial.println(F("[Filesystem] Formatting LittleFS"));
-        LogSerial.println(F("[Filesystem] Restarting Device"));
-        delay(1000);
-        ESP.restart();
+        // Mount again rather than restarting: a freshly installed version restarting before it has
+        // confirmed it works would make the chip go back to the previous version
+        if (!LittleFS.begin())
+        {
+            LogSerial.println(F("[Filesystem] Restarting Device"));
+            delay(1000);
+            ESP.restart();
+        }
     }
     LogSerial.println(F("[Filesystem] Mounted LittleFS"));
     recoverConfig();

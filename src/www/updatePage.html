@@ -17,6 +17,17 @@
             <h1>Update firmware</h1>
         </div>
 
+        <div class="form-container gh" id="layoutCard" hidden>
+            <h2 class="gh-title">Move to the larger layout</h2>
+            <p class="gh-msg" id="lmMsg">This controller is on the original BLLED storage layout, so it runs the lite edition. Moving it to the larger layout gives it the full edition and room for future features. Your settings are kept.</p>
+            <p class="gh-small" id="lmRisk">Keep it plugged in until it's done (about 2 minutes). For about 0.05 seconds the controller rewrites the table that says how its storage is divided. If the power goes out in exactly that moment, it won't start until it's re-flashed over USB. Losing power at any other point is fine: it starts on this version and you can try again.</p>
+            <div id="lmBox" class="ota" hidden>
+                <div class="ota-top"><b id="lmPct"></b><span id="lmStep">Starting</span></div>
+                <div class="ota-track"><div class="ota-fill" id="lmFill"></div></div>
+            </div>
+            <button type="button" id="lmBtn">Move to the larger layout</button>
+        </div>
+
         <div class="form-container gh" id="ghCard">
             <h2 class="gh-title">Update from GitHub</h2>
             <p class="gh-msg" id="ghMsg">Checking for a new version...</p>
@@ -317,6 +328,54 @@
         fetch('/api/status', { cache: 'no-store' }).then(r => r.json())
             .then(d => d.fw && latest().then(rel => show(d.fw, rel)))
             .catch(() => { });
+    })();
+    </script>
+    <script>
+    // Moving to the larger layout (only shown on lite controllers still on the original layout)
+    (function () {
+        const $l = id => document.getElementById(id);
+        let armed = null, poll = null, t0 = 0;
+        function show(d) {
+            $l('layoutCard').hidden = !(d.oldLayout || d.busy || d.done);
+            const btn = $l('lmBtn');
+            if (d.busy || d.done) {
+                btn.hidden = true; $l('lmBox').hidden = false;
+                $l('lmStep').textContent = d.step || 'Working';
+                const pct = d.total ? Math.min(100, Math.floor(d.bytes * 100 / d.total)) : 0;
+                $l('lmPct').textContent = d.total ? pct + '%' : '';
+                $l('lmFill').style.width = (d.total ? pct : 100) + '%';
+                $l('lmMsg').textContent = 'Moving to the larger layout. Keep it plugged in.';
+                return;
+            }
+            $l('lmBox').hidden = true; btn.hidden = false;
+            if (d.error) { $l('lmMsg').textContent = "The move stopped: " + d.error + '. Nothing was changed that matters: the controller is still running this version. You can try again.'; btn.textContent = 'Try again'; }
+        }
+        function refresh() { return fetch('/api/layout', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(d => { if (d) show(d); return d; }); }
+        function follow() {
+            if (poll) return;
+            t0 = Date.now();
+            poll = setInterval(() => {
+                refresh().then(d => {
+                    if (d && !d.busy && !d.done && d.error) { clearInterval(poll); poll = null; }
+                }).catch(() => {
+                    // Restarting: wait for the full edition to come back
+                    $l('lmStep').textContent = 'Restarting into the full edition';
+                    fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
+                        if (s.edition === 'full') { clearInterval(poll); poll = null; $l('lmBox').hidden = true; $l('lmMsg').textContent = 'Done! This controller is on the larger layout and running the full edition (' + s.fw + ').'; $l('lmRisk').hidden = true; }
+                    }).catch(() => { });
+                });
+            }, 2000);
+        }
+        $l('lmBtn').onclick = () => {
+            const b = $l('lmBtn');
+            if (!armed) { b.textContent = 'Tap again to start'; armed = setTimeout(() => { armed = null; b.textContent = 'Move to the larger layout'; }, 5000); return; }
+            clearTimeout(armed); armed = null; b.hidden = true;
+            fetch('/api/layout', { method: 'POST', headers: { 'X-BLLED': '1' } }).then(r => {
+                if (!r.ok) return r.text().then(t => { $l('lmMsg').textContent = t; b.hidden = false; b.textContent = 'Move to the larger layout'; });
+                follow();
+            });
+        };
+        refresh().then(d => { if (d && (d.busy || d.done)) follow(); }).catch(() => { });
     })();
     </script>
     <script>
