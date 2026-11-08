@@ -361,7 +361,7 @@
                     // Restarting: wait for the full edition to come back
                     $l('lmStep').textContent = 'Restarting into the full edition';
                     fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).then(s => {
-                        if (s.edition === 'full') { clearInterval(poll); poll = null; $l('lmBox').hidden = true; $l('lmMsg').textContent = 'Done! This controller is on the larger layout and running the full edition (' + s.fw + ').'; $l('lmRisk').hidden = true; }
+                        if (s.edition === 'full') { clearInterval(poll); poll = null; $l('lmBox').hidden = true; $l('lmMsg').textContent = 'Done! This controller is on the larger layout and running the full edition (' + s.fw + ').'; $l('lmRisk').hidden = true; setTimeout(() => location.href = '/', 4000); }
                     }).catch(() => { });
                 });
             }, 2000);
@@ -456,7 +456,8 @@
                     if (d.fw === plain(tag)) {
                         clearInterval(iv); $g('ghStep').textContent = 'Done';
                         $g('ghSub').textContent = 'Running ' + d.fw + '.';
-                        $g('ghMsg').textContent = 'Updated to ' + d.fw + '.';
+                        $g('ghMsg').textContent = 'Updated to ' + d.fw + '. Going back to the home page...';
+                        setTimeout(() => location.href = '/', 2500);
                     } else if (Date.now() - t0 > 150000) {
                         clearInterval(iv); $g('ghMsg').textContent = 'Still on ' + d.fw + " - the new version didn't start, so the controller kept the old one.";
                     }
