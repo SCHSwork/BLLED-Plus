@@ -3,6 +3,15 @@
 // A firmware update is uploading: the printer connection and the settings-page self-check pause
 // so the controller can give the upload its full attention
 inline volatile bool otaActive = false;
+// A buffer borrowed from the heap for as long as it's in scope (instead of reserving it forever)
+struct HeapBuf
+{
+    uint8_t *p;
+    explicit HeapBuf(size_t n) : p((uint8_t *)malloc(n)) {}
+    ~HeapBuf() { free(p); }
+    HeapBuf(const HeapBuf &) = delete;
+    HeapBuf &operator=(const HeapBuf &) = delete;
+};
 inline volatile bool mqttReconnectNow = false; // status page asked to reconnect to the printer
 inline volatile bool otaPauseMqtt = false; // self-update needs the memory: drop the printer's TLS connection
 inline volatile bool selfUpdating = false; // downloading an update from GitHub

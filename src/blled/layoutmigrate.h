@@ -76,7 +76,7 @@ static bool lmFail(const char *why)
 
 // ---- Step 5: write the storage table with the chip's own ROM routines (the normal flash API
 // refuses to touch it on purpose). Everything here runs from RAM with the flash cache off. ----
-static DRAM_ATTR uint32_t lmTableBuf[3072 / 4];
+static DRAM_ATTR uint32_t *lmTableBuf = nullptr; // 3 KB, borrowed from the heap while writing
 static DRAM_ATTR int lmUnlockRc = 0;
 static IRAM_ATTR __attribute__((noinline)) int lmWriteTableRaw()
 {
@@ -84,7 +84,7 @@ static IRAM_ATTR __attribute__((noinline)) int lmWriteTableRaw()
     lmUnlockRc = esp_rom_spiflash_unlock(); // clears write protection if set; not every chip needs it
     int r = esp_rom_spiflash_erase_sector(LM_TABLE / 4096);
     if (r == 0)
-        r = esp_rom_spiflash_write(LM_TABLE, lmTableBuf, sizeof(lmTableBuf));
+        r = esp_rom_spiflash_write(LM_TABLE, lmTableBuf, 3072);
     spi_flash_enable_interrupts_caches_and_other_cpu();
     return r;
 }
@@ -92,14 +92,21 @@ static IRAM_ATTR __attribute__((noinline)) int lmWriteTableRaw()
 // Writes 3 KB from src as the storage table and checks it reads back
 static bool lmWriteTable(const uint8_t *src)
 {
-    memcpy(lmTableBuf, src, sizeof(lmTableBuf));
-    static uint8_t check[3072];
+    HeapBuf table(3072), checkBuf(3072);
+    if (!table.p || !checkBuf.p)
+        return false;
+    lmTableBuf = (uint32_t *)table.p;
+    memcpy(lmTableBuf, src, 3072);
+    uint8_t *check = checkBuf.p;
     for (int attempt = 0; attempt < 3; attempt++)
     {
         int r = lmWriteTableRaw();
-        if (r == 0 && esp_flash_read(NULL, check, LM_TABLE, sizeof(check)) == ESP_OK &&
-            memcmp(check, lmTableBuf, sizeof(check)) == 0)
+        if (r == 0 && esp_flash_read(NULL, check, LM_TABLE, 3072) == ESP_OK &&
+            memcmp(check, lmTableBuf, 3072) == 0)
+        {
+            lmTableBuf = nullptr;
             return true;
+        }
         LogSerial.printf("[Layout] Storage table write attempt %d didn't check out (write %d, unlock %d)\n", attempt + 1, r, lmUnlockRc);
         Serial.flush();
     }
@@ -138,10 +145,16 @@ static bool lmMoveToFirstSlot()
     esp_ota_handle_t h;
     if (esp_ota_begin(first, OTA_SIZE_UNKNOWN, &h) != ESP_OK)
         return lmFail("Couldn't prepare the first slot");
-    static uint8_t buf[4096];
-    for (uint32_t off = 0; off < run->size; off += sizeof(buf))
+    HeapBuf mem(4096);
+    uint8_t *buf = mem.p;
+    if (!buf)
     {
-        if (esp_partition_read(run, off, buf, sizeof(buf)) != ESP_OK || esp_ota_write(h, buf, sizeof(buf)) != ESP_OK)
+        esp_ota_abort(h);
+        return lmFail("Not enough memory to copy");
+    }
+    for (uint32_t off = 0; off < run->size; off += 4096)
+    {
+        if (esp_partition_read(run, off, buf, 4096) != ESP_OK || esp_ota_write(h, buf, 4096) != ESP_OK)
         {
             esp_ota_abort(h);
             return lmFail("Copying to the first slot failed");
@@ -177,7 +190,13 @@ static bool lmSaveSettings()
         f.close();
         return lmFail("Your settings file looks wrong");
     }
-    static uint8_t cfg[6000];
+    HeapBuf mem(n), backMem(n);
+    uint8_t *cfg = mem.p, *back = backMem.p;
+    if (!cfg || !back)
+    {
+        f.close();
+        return lmFail("Not enough memory to save your settings");
+    }
     size_t got = f.read(cfg, n);
     f.close();
     if (got != n)
@@ -186,7 +205,6 @@ static bool lmSaveSettings()
     if (!p.begin("blledmig", false))
         return lmFail("Couldn't open the safe storage");
     bool ok = p.putBytes("cfg", cfg, n) == n;
-    static uint8_t back[6000];
     ok = ok && p.getBytes("cfg", back, n) == n && memcmp(back, cfg, n) == 0;
     p.end();
     return ok ? true : lmFail("Saving your settings to safe storage failed");
@@ -200,12 +218,13 @@ static bool lmFetchFull(WiFiClientSecure &)
 {
     const uint32_t src = 0x150000, size = LM_OLD_SLOT;
     lmSay("Test: copying the new firmware into place");
-    static uint8_t buf[4096];
-    for (int32_t off = size - sizeof(buf); off >= 0; off -= sizeof(buf))
+    HeapBuf mem(4096);
+    uint8_t *buf = mem.p;
+    for (int32_t off = size - 4096; off >= 0 && buf; off -= 4096)
     {
-        if (esp_flash_read(NULL, buf, src + off, sizeof(buf)) != ESP_OK ||
-            esp_flash_erase_region(NULL, LM_NEW_APP1 + off, sizeof(buf)) != ESP_OK ||
-            esp_flash_write(NULL, buf, LM_NEW_APP1 + off, sizeof(buf)) != ESP_OK)
+        if (esp_flash_read(NULL, buf, src + off, 4096) != ESP_OK ||
+            esp_flash_erase_region(NULL, LM_NEW_APP1 + off, 4096) != ESP_OK ||
+            esp_flash_write(NULL, buf, LM_NEW_APP1 + off, 4096) != ESP_OK)
             return lmFail("Test copy failed");
     }
     return true;
@@ -358,14 +377,15 @@ static void lmTask(void *)
             lmFail("Couldn't set the new version to start");
             break;
         }
-        static uint8_t oldTable[3072], newTable[3072];
-        if (esp_flash_read(NULL, oldTable, LM_TABLE, sizeof(oldTable)) != ESP_OK)
+        HeapBuf oldMem(3072), newMem(3072);
+        uint8_t *oldTable = oldMem.p, *newTable = newMem.p;
+        if (!oldTable || !newTable || esp_flash_read(NULL, oldTable, LM_TABLE, 3072) != ESP_OK)
         {
             lmFail("Couldn't read the current storage table");
             esp_ota_set_boot_partition(esp_ota_get_running_partition());
             break;
         }
-        memset(newTable, 0xFF, sizeof(newTable));
+        memset(newTable, 0xFF, 3072);
         memcpy(newTable, largeLayoutTableUsed, sizeof(largeLayoutTableUsed));
         lmSay("Writing the new storage table - keep it plugged in");
         if (!lmWriteTable(newTable))

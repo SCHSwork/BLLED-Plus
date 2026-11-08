@@ -45,7 +45,13 @@ void recoverConfig()
             size_t n = p.getBytesLength("cfg");
             if (n > 10 && n <= 6000)
             {
-                static uint8_t cfg[6000];
+                HeapBuf buf(n);
+                uint8_t *cfg = buf.p;
+                if (!cfg)
+                {
+                    p.end();
+                    return;
+                }
                 p.getBytes("cfg", cfg, n);
                 File f = LittleFS.open(configPath, "w");
                 if (f)
