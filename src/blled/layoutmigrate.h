@@ -29,16 +29,10 @@
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
 #include "esp_rom_crc.h"
-#include "esp32/rom/spi_flash.h"
 #include "esp_spi_flash.h"
 #include "layout_table.h"
 #include "selfupdate.h"
 
-extern "C"
-{
-    void spi_flash_disable_interrupts_caches_and_other_cpu(void);
-    void spi_flash_enable_interrupts_caches_and_other_cpu(void);
-}
 
 #define LM_OLD_SLOT 0x140000u    // firmware slot size on the original layout
 #define LM_NEW_SLOT 0x1E0000u    // ... on the larger layout
@@ -76,40 +70,40 @@ static bool lmFail(const char *why)
     return false;
 }
 
-// ---- Step 5: write the storage table with the chip's own ROM routines (the normal flash API
-// refuses to touch it on purpose). Everything here runs from RAM with the flash cache off. ----
-static DRAM_ATTR uint32_t *lmTableBuf = nullptr; // 3 KB, borrowed from the heap while writing
-static DRAM_ATTR int lmUnlockRc = 0;
-static IRAM_ATTR __attribute__((noinline)) int lmWriteTableRaw()
+// ---- Step 5: write the storage table. The normal flash routines refuse to touch it on purpose,
+// through a "region protected" check; that check is switched off for just this one write. (The
+// first version used the chip's ROM routines with interrupts off, and on real flash an erase can
+// take long enough for the chip's watchdog to reset it part way - the emulator erases instantly.)
+// These routines keep interrupts running and the watchdog fed while the flash is busy. ----
+static DRAM_ATTR esp_flash_os_functions_t lmOsFuncs;
+
+static esp_err_t lmWriteTableOnce(const uint8_t *src)
 {
-    spi_flash_disable_interrupts_caches_and_other_cpu();
-    lmUnlockRc = esp_rom_spiflash_unlock(); // clears write protection if set; not every chip needs it
-    int r = esp_rom_spiflash_erase_sector(LM_TABLE / 4096);
-    if (r == 0)
-        r = esp_rom_spiflash_write(LM_TABLE, lmTableBuf, 3072);
-    spi_flash_enable_interrupts_caches_and_other_cpu();
-    return r;
+    esp_flash_t *chip = esp_flash_default_chip;
+    const esp_flash_os_functions_t *saved = chip->os_func;
+    lmOsFuncs = *saved;
+    lmOsFuncs.region_protected = nullptr;
+    chip->os_func = &lmOsFuncs;
+    esp_err_t e = esp_flash_erase_region(chip, LM_TABLE, 4096);
+    if (e == ESP_OK)
+        e = esp_flash_write(chip, src, LM_TABLE, 3072);
+    chip->os_func = saved;
+    return e;
 }
 
 // Writes 3 KB from src as the storage table and checks it reads back
 static bool lmWriteTable(const uint8_t *src)
 {
-    HeapBuf table(3072), checkBuf(3072);
-    if (!table.p || !checkBuf.p)
+    HeapBuf checkBuf(3072);
+    if (!checkBuf.p)
         return false;
-    lmTableBuf = (uint32_t *)table.p;
-    memcpy(lmTableBuf, src, 3072);
     uint8_t *check = checkBuf.p;
     for (int attempt = 0; attempt < 3; attempt++)
     {
-        int r = lmWriteTableRaw();
-        if (r == 0 && esp_flash_read(NULL, check, LM_TABLE, 3072) == ESP_OK &&
-            memcmp(check, lmTableBuf, 3072) == 0)
-        {
-            lmTableBuf = nullptr;
+        esp_err_t e = lmWriteTableOnce(src);
+        if (e == ESP_OK && esp_flash_read(NULL, check, LM_TABLE, 3072) == ESP_OK && memcmp(check, src, 3072) == 0)
             return true;
-        }
-        LogSerial.printf("[Layout] Storage table write attempt %d didn't check out (write %d, unlock %d)\n", attempt + 1, r, lmUnlockRc);
+        LogSerial.printf("[Layout] Storage table write attempt %d didn't check out (%s)\n", attempt + 1, esp_err_to_name(e));
         Serial.flush();
     }
     return false;
