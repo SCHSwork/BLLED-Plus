@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include "mqtt/BLLEDMqtt.h"
+#include <set>
+#include <string>
 #include <ArduinoJson.h>
 
 #include "mqttparsingutility.h"
@@ -916,6 +918,68 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     }
 }
 
+// Testing aid ("Watch printer messages"): reads each message in full and logs what's new - a field
+// not seen in the status reports before, a change in the camera (ipcam) or AI camera (xcam)
+// settings, or a message that isn't a status report. Used to look for undocumented signals,
+// like whether the printer says anything when someone opens the camera.
+static void watchMessage(const char *payload, unsigned int length)
+{
+    if (length > 20000)
+    {
+        LogSerial.printf("[Watch] Skipped a %u-byte message\n", length);
+        return;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, payload, length))
+        return;
+    static std::set<std::string> seen;
+    static bool learned = false;
+    static String lastCam[2];
+    const char *camKeys[2] = {"ipcam", "xcam"};
+    for (JsonPair top : doc.as<JsonObject>())
+    {
+        const char *k = top.key().c_str();
+        if (strcmp(k, "print") != 0)
+        {
+            String v;
+            serializeJson(top.value(), v);
+            LogSerial.printf("[Watch] '%s' message: %.80s\n", k, v.c_str());
+            continue;
+        }
+        JsonObject p = top.value().as<JsonObject>();
+        const char *cmd = p["command"] | "";
+        if (cmd[0] && strcmp(cmd, "push_status") != 0)
+            LogSerial.printf("[Watch] print command: %s\n", cmd);
+        for (JsonPair f : p)
+        {
+            std::string key = f.key().c_str();
+            if (seen.insert(key).second && learned)
+            {
+                String v;
+                serializeJson(f.value(), v);
+                LogSerial.printf("[Watch] new field %s = %.70s\n", key.c_str(), v.c_str());
+            }
+        }
+        if (p.size() > 30 && !learned)
+        {
+            learned = true; // the first full report sets what's normal
+            LogSerial.printf("[Watch] Learned %u normal fields - now watching\n", (unsigned)seen.size());
+        }
+        for (int i = 0; i < 2; i++)
+        {
+            if (p[camKeys[i]].isNull())
+                continue;
+            String v;
+            serializeJson(p[camKeys[i]], v);
+            if (v != lastCam[i])
+            {
+                LogSerial.printf("[Watch] %s: %.95s\n", camKeys[i], v.c_str());
+                lastCam[i] = v;
+            }
+        }
+    }
+}
+
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
     if (stream.overflowed())
@@ -931,6 +995,8 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         stream.flush();
         return;
     }
+    if (printerConfig.watchMsgs)
+        watchMessage(stream.get_buffer(), stream.current_length());
     ParseCallback(topic, (byte *)stream.get_buffer(), stream.current_length());
     stream.flush();
 }

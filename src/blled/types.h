@@ -163,6 +163,7 @@ extern "C"
         unsigned long inactivityStartms = 0;    // Time the inactivity countdown is measured from
         int inactivityTimeOut = 3600000;  // 1800000 = 30mins / 600000 = 10mins / 60000 = 1mins 
         // Debugging
+        bool watchMsgs = false;         // testing: log new fields / camera changes in printer messages
         bool debuging = false;          //Debugging for all interactions through functions
         bool debugingchange = true;     //Default debugging level - to shows onChange
         bool mqttdebug = false;         //Writes each packet from BBLP to the serial log

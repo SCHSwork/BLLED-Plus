@@ -361,6 +361,10 @@
             <div class="group">
                 <h2>Logging</h2>
                 <label class="row">
+                    <span class="txt"><b>Watch printer messages</b><small>For testing: writes to the Activity log when a printer message has a field it hasn't seen before, or the camera settings change. Turn off when you're done.</small></span>
+                    <input type="checkbox" class="tog" id="watchMsgs" name="watchMsgs">
+                </label>
+                <label class="row">
                     <span class="txt"><b>Log every decision</b></span>
                     <input type="checkbox" class="tog" id="debuging" name="debuging">
                 </label>
@@ -596,7 +600,7 @@
                 const checks = {
                     maintMode: c.maintMode, discoMode: c.discoMode, replicateLedState: c.replicateled, showtestcolor: c.showtestcolor,
                     debugwifi: c.debugwifi, finishIndication: c.finishindication, finishEndDoor: c.finishExit, finishEndTimer: !c.finishExit,
-                    inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging,
+                    inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging, watchMsgs: !!c.watchMsgs,
                     debugingchange: c.debugingchange, mqttdebug: c.mqttdebug, p1Printer: c.p1Printer, doorSwitch: c.doorSwitch,
                     errorDetection: c.errordetection, progressFx: c.progressFx,
                     filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,

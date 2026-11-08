@@ -146,6 +146,7 @@ void saveFileSystem()
     json["controlChamberLight"] = printerConfig.controlChamberLight; //control chamber light
     // Debugging
     json["debuging"] = printerConfig.debuging;
+    json["watchMsgs"] = printerConfig.watchMsgs;
     json["debugingchange"] = printerConfig.debugingchange;
     json["mqttdebug"] = printerConfig.mqttdebug;
     // Printer Dependant
@@ -343,6 +344,7 @@ void loadFileSystem()
         printerConfig.controlChamberLight = json["controlChamberLight"]; //control chamber light
         // Debugging
         printerConfig.debuging = json["debuging"];
+        printerConfig.watchMsgs = json["watchMsgs"] | false;
         printerConfig.debugingchange = json["debugingchange"];
         printerConfig.mqttdebug = json["mqttdebug"];
         // Printer Dependant
