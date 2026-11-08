@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 #include <Arduino.h>
+#include <memory>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include "esp_flash.h"
@@ -143,19 +144,29 @@ static bool lmMoveToFirstSlot()
     if (run->address == first->address)
         return true;
     lmSay("Copying this version to the first slot");
+    // Get the copy buffer first (before erasing anything); memory can be briefly tight while a
+    // big printer message is being read, so wait a moment and try again
+    const size_t chunk = 1024;
+    uint8_t *raw = nullptr;
+    for (int attempt = 0; attempt < 20 && !raw; attempt++)
+    {
+        raw = (uint8_t *)malloc(chunk);
+        if (!raw)
+            vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    if (!raw)
+    {
+        snprintf(lmError, sizeof(lmError), "Not enough memory to copy (free %u KB, largest block %u KB)", ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
+        return lmFail(lmError);
+    }
+    std::unique_ptr<uint8_t, void (*)(void *)> mem(raw, free);
+    uint8_t *buf = raw;
     esp_ota_handle_t h;
     if (esp_ota_begin(first, OTA_SIZE_UNKNOWN, &h) != ESP_OK)
         return lmFail("Couldn't prepare the first slot");
-    HeapBuf mem(4096);
-    uint8_t *buf = mem.p;
-    if (!buf)
+    for (uint32_t off = 0; off < run->size; off += chunk)
     {
-        esp_ota_abort(h);
-        return lmFail("Not enough memory to copy");
-    }
-    for (uint32_t off = 0; off < run->size; off += 4096)
-    {
-        if (esp_partition_read(run, off, buf, 4096) != ESP_OK || esp_ota_write(h, buf, 4096) != ESP_OK)
+        if (esp_partition_read(run, off, buf, chunk) != ESP_OK || esp_ota_write(h, buf, chunk) != ESP_OK)
         {
             esp_ota_abort(h);
             return lmFail("Copying to the first slot failed");
@@ -368,11 +379,13 @@ static void lmTask(void *)
             lmFail("This controller's chip is smaller than 4 MB");
             break;
         }
+        // The move doesn't need the printer connection, and reading big printer messages takes
+        // memory the move needs: pause it from the start (it comes back after, or on restart)
+        suMakeRoom(true);
         if (!lmMoveToFirstSlot())
             break; // restarting to carry on, or stopped
         if (!lmSaveSettings())
             break;
-        suMakeRoom(true); // the download needs the memory of the printer connection
         {
             WiFiClientSecure client;
             client.setCACertBundle(certBundle);
