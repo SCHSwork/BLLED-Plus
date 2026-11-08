@@ -148,7 +148,7 @@ void saveFileSystem()
     json["debuging"] = printerConfig.debuging;
     json["watchMsgs"] = printerConfig.watchMsgs;
     json["cameraLight"] = printerConfig.cameraLight;
-    json["cameraLightMins"] = printerConfig.cameraLightMins;
+    json["cameraLightSecs"] = printerConfig.cameraLightSecs;
     json["debugingchange"] = printerConfig.debugingchange;
     json["mqttdebug"] = printerConfig.mqttdebug;
     // Printer Dependant
@@ -348,7 +348,8 @@ void loadFileSystem()
         printerConfig.debuging = json["debuging"];
         printerConfig.watchMsgs = json["watchMsgs"] | false;
         printerConfig.cameraLight = json["cameraLight"] | false;
-        printerConfig.cameraLightMins = constrain((int)(json["cameraLightMins"] | 5), 1, 120);
+        // 2.8.31 stored minutes
+        printerConfig.cameraLightSecs = constrain((int)(json["cameraLightSecs"] | ((int)(json["cameraLightMins"] | 1) * 60)), 5, 3600);
         printerConfig.debugingchange = json["debugingchange"];
         printerConfig.mqttdebug = json["mqttdebug"];
         // Printer Dependant

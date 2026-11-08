@@ -165,7 +165,7 @@ extern "C"
         unsigned long inactivityStartms = 0;    // Time the inactivity countdown is measured from
         int inactivityTimeOut = 3600000;  // 1800000 = 30mins / 600000 = 10mins / 60000 = 1mins 
         bool cameraLight = false;       // turn the printer's light on when someone opens the camera
-        int cameraLightMins = 5;        // ...and back off this long after the last time it was opened
+        int cameraLightSecs = 60;       // ...and back off this long after the last time it was opened
         // Debugging
         bool watchMsgs = false;         // testing: log new fields / camera changes in printer messages
         bool debuging = false;          //Debugging for all interactions through functions

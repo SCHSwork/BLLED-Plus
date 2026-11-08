@@ -8,6 +8,7 @@
 #include <WiFiClientSecure.h>
 #include "mqtt/BLLEDMqtt.h"
 #include <set>
+#include <map>
 #include <string>
 #include <ArduinoJson.h>
 
@@ -161,7 +162,7 @@ void cameraOpened()
     {
         publishChamberLight(true);
         printerVariables.cameraLitByUs = true;
-        LogSerial.printf("[Camera] Light on for %d min\n", printerConfig.cameraLightMins);
+        LogSerial.printf("[Camera] Light on for %d s\n", printerConfig.cameraLightSecs);
     }
     if (printerVariables.cameraLitByUs)
         printerVariables.cameraLitMs = millis();
@@ -178,7 +179,7 @@ static void cameraLightLoop()
         printerVariables.cameraLitByUs = false;
         return;
     }
-    if (millis() - printerVariables.cameraLitMs > (unsigned long)printerConfig.cameraLightMins * 60000UL)
+    if (millis() - printerVariables.cameraLitMs > (unsigned long)printerConfig.cameraLightSecs * 1000UL)
     {
         printerVariables.cameraLitByUs = false;
         if (printerVariables.printerledstate)
@@ -975,6 +976,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     }
 }
 
+#ifndef BLLED_LITE // left out of the lite edition to save space
 // Testing aid ("Watch printer messages"): reads each message in full and logs what's new - a field
 // not seen in the status reports before, a change in the camera (ipcam) or AI camera (xcam)
 // settings, or a message that isn't a status report. Used to look for undocumented signals,
@@ -991,7 +993,7 @@ static void watchMessage(const char *payload, unsigned int length)
         return;
     static std::set<std::string> seen;
     static bool learned = false;
-    static String lastCam[2];
+    static std::map<std::string, std::string> lastCam[2]; // subfield -> value
     const char *camKeys[2] = {"ipcam", "xcam"};
     for (JsonPair top : doc.as<JsonObject>())
     {
@@ -1029,16 +1031,27 @@ static void watchMessage(const char *payload, unsigned int length)
         {
             if (p[camKeys[i]].isNull())
                 continue;
-            String v;
-            serializeJson(p[camKeys[i]], v);
-            if (v != lastCam[i])
+            // Log just the parts that changed, so nothing gets cut off
+            bool first = lastCam[i].empty();
+            for (JsonPair f : p[camKeys[i]].as<JsonObject>())
             {
-                LogSerial.printf("[Watch] %s: %.95s\n", camKeys[i], v.c_str());
-                lastCam[i] = v;
+                String v;
+                serializeJson(f.value(), v);
+                std::string &was = lastCam[i][f.key().c_str()];
+                if (was != v.c_str())
+                {
+                    if (!first)
+                        LogSerial.printf("[Watch] %s.%s: %.40s -> %.60s\n", camKeys[i], f.key().c_str(), was.c_str(), v.c_str());
+                    was = v.c_str();
+                }
             }
+            if (first)
+                LogSerial.printf("[Watch] %s: watching %u settings\n", camKeys[i], (unsigned)lastCam[i].size());
         }
     }
 }
+
+#endif
 
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
@@ -1055,8 +1068,10 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         stream.flush();
         return;
     }
+#ifndef BLLED_LITE
     if (printerConfig.watchMsgs)
         watchMessage(stream.get_buffer(), stream.current_length());
+#endif
     ParseCallback(topic, (byte *)stream.get_buffer(), stream.current_length());
     stream.flush();
 }

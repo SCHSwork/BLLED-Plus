@@ -150,8 +150,11 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["inactivityMins"] = (int)(printerConfig.inactivityTimeOut / 60000);
     doc["debuging"] = printerConfig.debuging;
     doc["watchMsgs"] = printerConfig.watchMsgs;
+#ifdef BLLED_LITE
+    doc["noWatch"] = true;
+#endif
     doc["cameraLight"] = printerConfig.cameraLight;
-    doc["cameraLightMins"] = printerConfig.cameraLightMins;
+    doc["cameraLightSecs"] = printerConfig.cameraLightSecs;
     doc["debugingchange"] = printerConfig.debugingchange;
     doc["mqttdebug"] = printerConfig.mqttdebug;
     doc["p1Printer"] = printerVariables.isP1Printer;
@@ -367,7 +370,7 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
     printerConfig.debuging = request->hasParam("debuging", true);
     printerConfig.watchMsgs = request->hasParam("watchMsgs", true);
     printerConfig.cameraLight = request->hasParam("cameraLight", true);
-    printerConfig.cameraLightMins = constrain(getSafeParamInt(request, "cameraLightMins"), 1, 120);
+    printerConfig.cameraLightSecs = constrain(getSafeParamInt(request, "cameraLightSecs"), 5, 3600);
     printerConfig.debugingchange = request->hasParam("debugingchange", true);
     printerConfig.mqttdebug = request->hasParam("mqttdebug", true);
     printerVariables.isP1Printer = request->hasParam("p1Printer", true);

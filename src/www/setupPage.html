@@ -162,8 +162,8 @@
                     <input type="checkbox" class="tog" id="controlChamberLight" name="controlChamberLight">
                 </label>
                 <div class="row">
-                    <label for="cameraLight" class="txt"><b>Lights on for the camera</b><small>When someone opens the printer's camera in Bambu Handy, the printer's light (and the strip with it) turns on, then back off this long after the camera was last opened. Not during a print.</small></label>
-                    <span data-show-if="cameraLight"><input type="number" id="cameraLightMins" name="cameraLightMins" min="1" max="120" value="5" inputmode="numeric"> <span class="unit">min</span></span>
+                    <label for="cameraLight" class="txt"><b>Lights on for the camera</b><small>When someone opens the printer's camera in Bambu Handy, the printer's light (and the strip with it) turns on, then back off this long after the camera was last opened (the printer doesn't say when it closes). Not during a print.</small></label>
+                    <span data-show-if="cameraLight"><input type="number" id="cameraLightSecs" name="cameraLightSecs" min="5" max="3600" value="60" inputmode="numeric"> <span class="unit">sec</span></span>
                     <input type="checkbox" class="tog" id="cameraLight" name="cameraLight">
                 </div>
             </div>
@@ -365,7 +365,7 @@
             </div>
             <div class="group">
                 <h2>Logging</h2>
-                <label class="row">
+                <label class="row" id="watchRow">
                     <span class="txt"><b>Watch printer messages</b><small>For testing: writes to the Activity log when a printer message has a field it hasn't seen before, or the camera settings change. Turn off when you're done.</small></span>
                     <input type="checkbox" class="tog" id="watchMsgs" name="watchMsgs">
                 </label>
@@ -628,7 +628,8 @@
 
                 $('finishTimerMins').value = num(c.finishTimerMins, 10);
                 $('inactivityMins').value = num(c.inactivityMins, 30);
-                $('cameraLightMins').value = num(c.cameraLightMins, 5);
+                $('cameraLightSecs').value = num(c.cameraLightSecs, 60);
+                if (c.noWatch) $('watchRow').hidden = true;
                 $('hmsIgnoreList').value = c.hmsIgnoreList || '';
                 $('fadeMs').value = num(c.fadeMs, 600);
                 $('coolDownTemp').value = num(c.coolDownTemp, 35);
