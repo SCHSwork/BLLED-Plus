@@ -37,4 +37,5 @@ printf '#include <ArduinoJson.h> // listed so library detection always adds it\n
   --build-property "compiler.c.extra_flags=-DCONFIG_ASYNC_TCP_STACK_SIZE=4096" \
   --build-path "$W/build" BLLED
 cp "$W/build/BLLED.ino.bin" "$REPO/BLLC_V$VER$SUFFIX.bin.ota"
+cp "$W/build/BLLED.ino.elf" "$REPO/BLLC_V$VER$SUFFIX.elf"   # for turning crash addresses into code lines
 echo "Built $REPO/BLLC_V$VER$SUFFIX.bin.ota ($(stat -c %s "$REPO/BLLC_V$VER$SUFFIX.bin.ota") bytes)"

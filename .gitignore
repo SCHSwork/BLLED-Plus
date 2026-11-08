@@ -23,3 +23,6 @@ android/build/
 android/app/build/
 android/.gradle/
 android/local.properties
+
+# Build maps for decoding crashes (kept locally, not in git)
+*.elf

@@ -8,6 +8,7 @@ unsigned long restartRequestTime = 0;
 // chip itself reports "power on".
 #ifdef ESP_PLATFORM
 #include "esp_system.h"
+#include "esp_core_dump.h"
 RTC_NOINIT_ATTR static char restartNote[40];
 RTC_NOINIT_ATTR static uint32_t restartNoteMagic;
 #else
@@ -112,6 +113,33 @@ void defaultcolors()
     printerConfig.bedTempRGB = hex2rgb("#FF0000");        // Red
 }
 
+// After a crash or a freeze the chip saves a snapshot (core dump) in its own storage area. Read
+// its summary at start-up, write it to the Activity log, then clear it. The addresses can be
+// turned into code lines with the build of that exact version (tools/decode-crash.sh).
+void reportLastCrash()
+{
+    if (esp_core_dump_image_check() != ESP_OK)
+        return;
+    esp_core_dump_summary_t *s = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
+    if (s && esp_core_dump_get_summary(s) == ESP_OK)
+    {
+        LogSerial.printf("[Crash] Last crash/freeze was in task '%s' at 0x%08x (cause %u, build %.8s)\n",
+                         s->exc_task, (unsigned)s->exc_pc, (unsigned)s->ex_info.exc_cause, (const char *)s->app_elf_sha256);
+        char line[110];
+        for (uint32_t i = 0; i < s->exc_bt_info.depth && i < 16; i += 4)
+        {
+            int n = snprintf(line, sizeof(line), "[Crash] bt");
+            for (uint32_t j = i; j < i + 4 && j < s->exc_bt_info.depth && j < 16; j++)
+                n += snprintf(line + n, sizeof(line) - n, " 0x%08x", (unsigned)s->exc_bt_info.bt[j]);
+            LogSerial.println(line);
+        }
+        if (s->exc_bt_info.corrupted)
+            LogSerial.println(F("[Crash] (backtrace incomplete)"));
+    }
+    free(s);
+    esp_core_dump_image_erase();
+}
+
 void setup()
 {
     readRestartReason();
@@ -127,6 +155,7 @@ void setup()
     delay(100);
     Serial.println(F("Initializing"));
     suBootCheck(); // did an update from GitHub come up, or did the previous version have to take over?
+    reportLastCrash(); // a crash or freeze leaves a snapshot behind: put its summary in the Activity log
     Serial.println(ESP.getFreeHeap());
     Serial.println("");
     Serial.print(F("** Using firmware version: "));
@@ -331,6 +360,15 @@ void loop()
     if (shouldRestart && millis() - restartRequestTime > 3000)
     {
         suConfirmFirmware(); // a planned restart: this version works, so don't roll it back
+        // Hang up on the printer properly first: if the controller just vanishes, the X1C keeps the
+        // dead connection for a while and won't take a new one until it gives up on it
+        if (mqttClient.connected())
+        {
+            otaPauseMqtt = true;
+            unsigned long t0 = millis();
+            while (mqttClient.connected() && millis() - t0 < 1500)
+                delay(20);
+        }
         LogSerial.println(F("[WiFiSetup] Restarting now..."));
         if (restartNoteMagic != 0xB11ED001)
             noteRestart("Settings saved or update");
