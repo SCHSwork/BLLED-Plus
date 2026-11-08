@@ -111,6 +111,9 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #define CHECK_STRING_LENGTH(l,s) if (l+2+strnlen(s, this->bufferSize) > this->bufferSize) {_client->stop();return false;}
 
+// BLLED Plus: called when a published message starts arriving, with its payload size
+extern void (*mqttPayloadStart)(uint32_t payloadLength);
+
 class BLLEDMqttClient : public Print {
 private:
    Client* _client;

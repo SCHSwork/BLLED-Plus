@@ -918,6 +918,19 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
+    if (stream.overflowed())
+    {
+        // Not enough memory for this one message: skip it (the next full report replaces it)
+        static unsigned long lastNote = 0;
+        if (millis() - lastNote > 60000)
+        {
+            lastNote = millis();
+            LogSerial.printf("[MQTT] Skipped a %u-byte printer message - not enough free memory (%u KB free, largest block %u KB)\n",
+                             (unsigned)stream.wanted(), ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
+        }
+        stream.flush();
+        return;
+    }
     ParseCallback(topic, (byte *)stream.get_buffer(), stream.current_length());
     stream.flush();
 }
@@ -953,6 +966,7 @@ void setupMqtt()
     mqttClient.setBufferSize(1024);
     mqttClient.setServer(printerConfig.printerIP, 8883);
     mqttClient.setStream(stream);
+    mqttPayloadStart = [](uint32_t n) { stream.begin(n); };
     mqttClient.setCallback(mqttCallback);
 
     LogSerial.println(F("Finished setting up MQTT"));

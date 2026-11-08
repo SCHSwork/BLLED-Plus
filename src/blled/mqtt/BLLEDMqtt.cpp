@@ -10,6 +10,8 @@
 */
 
 #include "BLLEDMqtt.h"
+
+void (*mqttPayloadStart)(uint32_t payloadLength) = nullptr;
 #include "Arduino.h"
 
 BLLEDMqttClient::BLLEDMqttClient() {
@@ -347,6 +349,10 @@ uint32_t BLLEDMqttClient::readPacket(uint8_t* lengthLength) {
             // skip message id
             skip += 2;
         }
+        // BLLED Plus: tell the stream how big the message is, so it starts fresh and sizes its
+        // buffer once (a message cut off part way must not be glued onto the next one)
+        if (this->stream && mqttPayloadStart && length >= 2u + skip)
+            mqttPayloadStart(length - 2 - skip);
     }
     uint32_t idx = len;
 
