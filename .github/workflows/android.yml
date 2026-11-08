@@ -1,0 +1,70 @@
+name: Android app
+# Builds the BLLED Plus phone app (android/) and publishes the APK as a GitHub release named
+# app-v<versionName>. It's marked as a pre-release so it never counts as the "latest" firmware
+# release that controllers check for updates.
+#
+# The APK is signed with the BLLED_SIGNING_KEY secret. Android only installs an update over an
+# app signed with the same certificate, so the certificate is made once and kept in
+# android/signing-cert.pem.
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build
+        run: gradle -p android assembleRelease --no-daemon
+      - name: Sign
+        env:
+          SIGNING_KEY: ${{ secrets.BLLED_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if [ -z "$SIGNING_KEY" ]; then echo "::error::BLLED_SIGNING_KEY secret is missing"; exit 1; fi
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
+          CERT=android/signing-cert.pem
+          if [ ! -f "$CERT" ]; then
+            # First build: make the app's certificate once and keep it in the repo
+            openssl req -new -x509 -key "$RUNNER_TEMP/key.pem" -subj "/CN=BLLED Plus/O=SCHSwork" -days 36500 -sha256 -out "$CERT"
+            git config user.name "Lincoln"
+            git config user.email "lincolnspaxton@gmail.com"
+            git add "$CERT"
+            git commit -m "Android app signing certificate"
+            git push
+          fi
+          openssl pkcs12 -export -inkey "$RUNNER_TEMP/key.pem" -in "$CERT" -name blled -passout pass:blled -out "$RUNNER_TEMP/app.p12"
+          rm -f "$RUNNER_TEMP/key.pem"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          VER=$(sed -n "s/.*versionName *'\(.*\)'.*/\1/p" android/app/build.gradle)
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/app.p12" --ks-type PKCS12 --ks-pass pass:blled --ks-key-alias blled \
+            --out "BLLED-Plus-app-$VER.apk" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify --print-certs "BLLED-Plus-app-$VER.apk"
+          rm -f "$RUNNER_TEMP/app.p12"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="app-v${VER}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "BLLED-Plus-app-$VER.apk" --clobber
+          else
+            gh release create "$TAG" "BLLED-Plus-app-$VER.apk" --title "BLLED Plus app $VER" --prerelease --latest=false \
+              --notes "Phone app for BLLED Plus. Install the APK on your Android phone (allow installing from your browser when asked). If an older version of the app is installed and it won't update, uninstall it first."
+          fi

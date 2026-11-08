@@ -17,3 +17,9 @@ settings-backup.json
 
 # Firmware published by the Release workflow
 !releases/*.bin.ota
+
+# Android build output
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
