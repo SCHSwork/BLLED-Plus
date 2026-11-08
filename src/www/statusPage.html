@@ -249,7 +249,7 @@
             set('quiet', d.quietActive ? 'Active now' : (d.clock ? 'Not now (' + d.clock + ')' : 'Waiting for the clock'));
             set('uptime', dur(d.uptime));
             set('heap', Math.round(d.heap / 1024) + ' KB');
-            set('fw', d.fw);
+            set('fw', d.edition === 'lite' ? d.fw + ' lite' : d.fw);
             // Both ways to reach it: the name keeps working if the router hands out a new number
             $('addr').innerHTML = '<a href="http://' + (d.host || 'blled').toLowerCase() + '.local/">' + (d.host || 'blled').toLowerCase() + '.local</a> · ' + (d.ip || '');
         }

@@ -574,6 +574,11 @@ void handleSubmitWiFi(AsyncWebServerRequest *request)
 void fillStatusJson(JsonDocument &doc)
 {
     doc["fw"] = globalVariables.FWVersion;
+#ifdef BLLED_LITE
+    doc["edition"] = "lite";
+#else
+    doc["edition"] = "full";
+#endif
     doc["host"] = globalVariables.Host;
     doc["wifi_rssi"] = WiFi.RSSI();
     doc["ip"] = WiFi.localIP().toString();
@@ -1198,6 +1203,8 @@ void setupWebserver()
         // Report a failed update instead of restarting into the old firmware as if it worked
         if (Update.hasError() || !Update.isFinished()) {
             String why = Update.hasError() ? String(Update.errorString()) : String("the file was incomplete");
+            if (Update.getError() == UPDATE_ERROR_SPACE)
+                why = "this file is too big for this controller's storage layout - use the -lite file instead";
             LogSerial.printf("[OTA] Failed: %s\n", why.c_str());
             Update.abort();
             otaActive = false;

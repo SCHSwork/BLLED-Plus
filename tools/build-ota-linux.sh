@@ -5,6 +5,9 @@
 set -euo pipefail
 W=${1:-$HOME/esp}; REPO=$(cd "$(dirname "$0")/.." && pwd)
 VER=$(sed -n 's/^custom_version = \([0-9.]*\).*/\1/p' "$REPO/platformio.ini")
+# EDITION=lite builds the smaller edition for controllers on the original BLLED layout
+EDITION=${EDITION:-full}; EXTRA=""; SUFFIX=""
+if [ "$EDITION" = lite ]; then EXTRA="-DBLLED_LITE"; SUFFIX="-lite"; fi
 mkdir -p "$W" && cd "$W"
 [ -d esp32-2.0.17 ] || { curl -sSL -o core.zip https://github.com/espressif/arduino-esp32/releases/download/2.0.17/esp32-2.0.17.zip; unzip -q core.zip; }
 [ -d xtensa-esp32-elf ] || curl -sSL https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-linux-amd64.tar.gz | tar xz
@@ -29,8 +32,8 @@ printf '#include <ArduinoJson.h> // listed so library detection always adds it\n
   --build-property "runtime.tools.xtensa-esp32-elf-gcc.path=$W/xtensa-esp32-elf" \
   --build-property "runtime.tools.esptool_py.path=$(dirname "$(command -v esptool.py)")" \
   --build-property "runtime.tools.ctags.path=$W/fakectags" \
-  --build-property "compiler.cpp.extra_flags=-DVERSION=$VER -DSTRVERSION=\"$VER\" -DCONFIG_ASYNC_TCP_STACK_SIZE=4096" \
+  --build-property "compiler.cpp.extra_flags=-DVERSION=$VER -DSTRVERSION=\"$VER\" -DCONFIG_ASYNC_TCP_STACK_SIZE=4096 $EXTRA" \
   --build-property "compiler.c.extra_flags=-DCONFIG_ASYNC_TCP_STACK_SIZE=4096" \
   --build-path "$W/build" BLLED
-cp "$W/build/BLLED.ino.bin" "$REPO/BLLC_V$VER.bin.ota"
-echo "Built $REPO/BLLC_V$VER.bin.ota"
+cp "$W/build/BLLED.ino.bin" "$REPO/BLLC_V$VER$SUFFIX.bin.ota"
+echo "Built $REPO/BLLC_V$VER$SUFFIX.bin.ota ($(stat -c %s "$REPO/BLLC_V$VER$SUFFIX.bin.ota") bytes)"

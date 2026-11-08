@@ -184,17 +184,38 @@ static bool suFetchLatest(WiFiClientSecure &client)
     suAssetUrl[0] = 0;
     suSigUrl[0] = 0;
     suAssetSize = 0;
+    // Releases have a full edition and a smaller "-lite" one for controllers on the original
+    // BLLED storage layout. Take the full one if it fits this controller's update space.
+    const esp_partition_t *slot = esp_ota_get_next_update_partition(NULL);
+    uint32_t room = slot ? slot->size : 0;
+    String fullName, liteName, fullUrl, liteUrl, fullSig, liteSig;
+    uint32_t fullSize = 0, liteSize = 0;
     for (JsonObject a : doc["assets"].as<JsonArray>())
     {
         String name = a["name"] | "";
-        if (name.endsWith(".ota") && !suAssetUrl[0])
+        String url = a["browser_download_url"] | "";
+        bool lite = name.indexOf("-lite") >= 0;
+        if (name.endsWith(".ota"))
         {
-            strlcpy(suAssetUrl, a["browser_download_url"] | "", sizeof(suAssetUrl));
-            suAssetSize = a["size"] | 0;
+            if (lite && liteUrl.isEmpty())
+                liteName = name, liteUrl = url, liteSize = a["size"] | 0;
+            else if (!lite && fullUrl.isEmpty())
+                fullName = name, fullUrl = url, fullSize = a["size"] | 0;
         }
-        else if (name.endsWith(".ota.sig") && !suSigUrl[0])
-            strlcpy(suSigUrl, a["browser_download_url"] | "", sizeof(suSigUrl));
+        else if (name.endsWith(".ota.sig"))
+        {
+            if (lite)
+                liteSig = url;
+            else
+                fullSig = url;
+        }
     }
+    bool useFull = fullUrl.length() && (!room || fullSize <= room || liteUrl.isEmpty());
+    strlcpy(suAssetUrl, (useFull ? fullUrl : liteUrl).c_str(), sizeof(suAssetUrl));
+    strlcpy(suSigUrl, (useFull ? fullSig : liteSig).c_str(), sizeof(suSigUrl));
+    suAssetSize = useFull ? fullSize : liteSize;
+    if (suAssetUrl[0])
+        LogSerial.printf("[Update] Using %s (%u bytes, room %u)\n", (useFull ? fullName : liteName).c_str(), (unsigned)suAssetSize, (unsigned)room);
     suChecked = true;
     LogSerial.printf("[Update] Latest on GitHub: %s (running %s)\n", suLatest, STRVERSION);
     return true;
