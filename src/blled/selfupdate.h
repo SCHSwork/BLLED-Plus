@@ -52,7 +52,8 @@ char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
 char suRolledBack[24] = "";           // shown on the update page after a rollback
 unsigned long suLastCheckMs = 0;
-unsigned long suStartedMs = 0;       // when the running check/download began
+unsigned long suStartedMs = 0;
+unsigned long suResumeMqttAt = 0;     // when to let the printer connection back after a check       // when the running check/download began
 bool suChecked = false;
 
 // Version compare: "v2.8.10" > "2.8.9"
@@ -481,7 +482,15 @@ static void suTask(void *)
     suLastCheckMs = millis();
     suMode = 0;
     if (!shouldRestart)
-        otaPauseMqtt = false; // let the printer connection come back
+    {
+        // A check from the update page is often followed by "Install" within seconds: keep the
+        // printer connection paused a little longer rather than reconnecting and dropping it
+        // again right away (the X1C stops answering for a while after quick reconnects)
+        if (suManual && suState != SU_FAILED && suUpdateAvailable())
+            suResumeMqttAt = millis() + 20000;
+        else
+            otaPauseMqtt = false; // let the printer connection come back
+    }
     suBusy = false;
     vTaskDelete(NULL);
 }
@@ -492,6 +501,7 @@ bool suStart(int mode, bool manual)
     if (suBusy || otaActive || shouldRestart || WiFi.status() != WL_CONNECTED)
         return false;
     suBusy = true;
+    suResumeMqttAt = 0;
     suStartedMs = millis();
     suMode = mode;
     suManual = manual;
@@ -528,6 +538,12 @@ static bool suPrinterIdle()
 
 void selfUpdateLoop()
 {
+    if (suResumeMqttAt && !suBusy && (long)(millis() - suResumeMqttAt) >= 0)
+    {
+        suResumeMqttAt = 0;
+        if (!otaActive && !shouldRestart)
+            otaPauseMqtt = false;
+    }
     // A new version that talks to the printer for a bit, or simply keeps running for a minute,
     // is good: keep it. (Crashes and hangs show up well before that.)
     if (!suFirmwareConfirmed && (millis() > 60000 || (millis() > 20000 && printerVariables.online)))

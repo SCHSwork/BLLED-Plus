@@ -6,7 +6,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <PubSubClient.h>
+#include "mqtt/BLLEDMqtt.h"
 #include <ArduinoJson.h>
 
 #include "mqttparsingutility.h"
@@ -15,7 +15,7 @@
 #include "leds.h"
 
 WiFiClientSecure wifiSecureClient;
-PubSubClient mqttClient(wifiSecureClient);
+BLLEDMqttClient mqttClient(wifiSecureClient);
 
 String device_topic;
 String report_topic;
