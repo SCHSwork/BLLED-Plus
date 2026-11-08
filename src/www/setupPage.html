@@ -123,6 +123,10 @@
                     <span class="txt"><small id="calNote">Changes show on the strip right away. Save to keep them.</small></span>
                     <button type="button" class="ghost mini" id="calReset">Reset</button>
                 </div>
+                <label class="row">
+                    <span class="txt"><b>Silent mode</b><small>Some controllers make a high-pitched whine while the strip is dimmed. This switches the LEDs faster than you can hear.</small></span>
+                    <input type="checkbox" class="tog" id="silentPwm" name="silentPwm">
+                </label>
             </div>
 
             <div class="group">
@@ -601,7 +605,7 @@
                     coolDownEnabled: c.coolDownEnabled, doorWorkLight: c.doorWorkLight,
                     almostDoneEnabled: c.almostDoneEnabled, firstLayerSpotlight: c.firstLayerSpotlight !== false,
                     needsYouEnabled: c.needsYouEnabled !== false, idleDimEnabled: c.idleDimEnabled !== false,
-                    autoUpdate: !!c.autoUpdate, autoUpdateWindow: !!c.autoUpdateWindow
+                    autoUpdate: !!c.autoUpdate, autoUpdateWindow: !!c.autoUpdateWindow, silentPwm: !!c.silentPwm
                 };
                 for (const [id, v] of Object.entries(checks)) $(id).checked = !!v;
 

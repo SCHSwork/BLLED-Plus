@@ -131,6 +131,7 @@ extern "C"
         bool maintMode_update = true;
         bool discoMode = false;         //Cycles through RGB colors slowly for 'pretty' timelapse movie
         bool discoMode_update = true;
+        bool silentPwm = false;         // switch the LEDs at 25 kHz instead of 5 kHz (no whine)
         bool replicatestate = true;     //LED will be on if the BBPL Light is on
         bool replicate_update = true;     //LED will be on if the BBPL Light is on
         COLOR runningColor;             //Running Color (Default if no issues)

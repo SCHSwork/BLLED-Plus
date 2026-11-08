@@ -35,9 +35,12 @@ const int blueChannel = 2;
 const int warmChannel = 3;
 const int coldChannel = 4;
 
-const int pwmFreq = 5000;
-const int pwmResolution = 12; // 12-bit PWM = 0-4095 (5 kHz supports up to 13 bits)
-const int pwmMax = (1 << pwmResolution) - 1;
+// How fast the LEDs are switched. 5 kHz is what the original BLLED used, but it's in the range
+// people hear, and some boards/strips whine at it while dimmed. "Silent" switches above hearing
+// (25 kHz) with 11-bit steps (the most the ESP32 can do at that speed).
+int pwmFreq = 5000;
+int pwmResolution = 12; // 12-bit PWM = 0-4095 (5 kHz supports up to 13 bits)
+uint32_t pwmMax = (1u << 12) - 1;
 const float LED_GAMMA = 2.2f;
 
 enum LedFx : uint8_t
@@ -1525,6 +1528,23 @@ void updateleds()
     {
         updateleds();
     }
+}
+
+// Switch to the PWM speed the settings ask for (call after loading or saving settings)
+void applyPwmMode()
+{
+    int f = printerConfig.silentPwm ? 25000 : 5000;
+    int r = printerConfig.silentPwm ? 11 : 12;
+    if (f == pwmFreq && r == pwmResolution)
+        return;
+    pwmFreq = f;
+    pwmResolution = r;
+    pwmMax = (1u << r) - 1;
+    const int channels[] = {redChannel, greenChannel, blueChannel, warmChannel, coldChannel};
+    for (int ch : channels)
+        ledcSetup(ch, pwmFreq, pwmResolution);
+    LogSerial.printf("[LEDs] Switching at %d Hz (%d-bit)\n", pwmFreq, pwmResolution);
+    ledUpdateRequested = true;
 }
 
 void setupLeds()

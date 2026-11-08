@@ -180,6 +180,7 @@ void saveFileSystem()
     json["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     json["almostDoneMins"] = printerConfig.almostDoneMins;
     json["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    json["silentPwm"] = printerConfig.silentPwm;
     json["calR"] = printerConfig.calR;
     json["amsPulseCount"] = printerConfig.amsPulseCount;
     json["nozzleSwapFx"] = printerConfig.nozzleSwapFx;
@@ -356,6 +357,7 @@ void loadFileSystem()
         printerConfig.almostDoneMins = constrain((int)(json["almostDoneMins"] | 5), 1, 60);
         printerConfig.firstLayerSpotlight = json["firstLayerSpotlight"] | true;
         printerConfig.calR = constrain((int)(json["calR"] | 100), 10, 100);
+        printerConfig.silentPwm = json["silentPwm"] | false;
         printerConfig.amsPulseCount = json["amsPulseCount"] | false;
         printerConfig.nozzleSwapFx = json["nozzleSwapFx"] | true;
         printerConfig.nozzleSwapRGB = hex2rgb(json["nozzleSwapRGB"] | "#00B4FF", json["nozzleSwapWW"] | 0, json["nozzleSwapCW"] | 0);

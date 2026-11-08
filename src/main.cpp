@@ -141,6 +141,7 @@ void setup()
     tweenToColor(255, 0, 0, 0, 0); // RED
     setupFileSystem();
     loadFileSystem();
+    applyPwmMode();
     Serial.println(F(""));
 
     tweenToColor(printerConfig.wifiRGB); // Customisable - Default is ORANGE

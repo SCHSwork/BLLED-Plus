@@ -216,6 +216,7 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["almostDoneEnabled"] = printerConfig.almostDoneEnabled;
     doc["almostDoneMins"] = printerConfig.almostDoneMins;
     doc["firstLayerSpotlight"] = printerConfig.firstLayerSpotlight;
+    doc["silentPwm"] = printerConfig.silentPwm;
     doc["calR"] = printerConfig.calR;
     doc["amsPulseCount"] = printerConfig.amsPulseCount;
     doc["nozzleSwapFx"] = printerConfig.nozzleSwapFx;
@@ -441,7 +442,9 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
         actLogTzReady = true;
     }
 
+    printerConfig.silentPwm = request->hasParam("silentPwm", true);
     saveFileSystem();
+    applyPwmMode();
     LogSerial.println(F("Packet received from setuppage"));
     printerConfig.inactivityStartms = millis();
     printerConfig.isIdleOFFActive = false;
