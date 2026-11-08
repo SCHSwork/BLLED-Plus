@@ -429,12 +429,21 @@
             }
         }
         function refresh() { return fetch('/api/github-update', { cache: 'no-store' }).then(r => r.json()).then(d => { show(d); return d; }); }
+        // If the controller stops answering (busy, restarting, Wi-Fi blip), say so and keep trying
+        // instead of sitting on the last message forever
+        let lost = 0, recover = null;
+        function lostContact() {
+            if (++lost < 3) return;
+            $g('ghMsg').textContent = 'Lost contact with the controller. Trying again...';
+            $g('ghInstall').hidden = true;
+            if (!recover) recover = setInterval(() => refresh().then(d => { lost = 0; clearInterval(recover); recover = null; if (!d.busy && !d.latest) start('check'); }).catch(() => { }), 3000);
+        }
         function start(what) {
             const f = new FormData(); f.append('do', what);
             return fetch('/api/github-update', { method: 'POST', body: f, headers: { 'X-BLLED': '1' } }).then(r => {
                 if (!r.ok) return r.text().then(t => { $g('ghMsg').textContent = t; });
-                if (!poll) poll = setInterval(() => refresh().then(d => { if (!d.busy && d.state !== 'installed') { clearInterval(poll); poll = null; } }).catch(() => { }), 1000);
-            });
+                if (!poll) poll = setInterval(() => refresh().then(d => { lost = 0; if (!d.busy && d.state !== 'installed') { clearInterval(poll); poll = null; } }).catch(lostContact), 1000);
+            }).catch(() => { lost = 3; lostContact(); });
         }
         function waitRestart(tag) {
             if (poll) { clearInterval(poll); poll = null; }
@@ -458,7 +467,7 @@
         refresh().then(d => {
             if (d.busy) { if (!poll) poll = setInterval(() => refresh().catch(() => { }), 1000); }
             else if (d.checkedAgo < 0 || d.checkedAgo > 600) start('check');
-        }).catch(() => { $g('ghMsg').textContent = "Couldn't ask the controller about updates."; });
+        }).catch(() => { lost = 3; lostContact(); });
     })();
     </script>
 </body>

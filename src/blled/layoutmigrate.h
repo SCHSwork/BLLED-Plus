@@ -68,8 +68,9 @@ static void lmSay(const char *step)
 
 static bool lmFail(const char *why)
 {
-    strlcpy(lmError, why, sizeof(lmError));
-    LogSerial.printf("[Layout] Stopped: %s\n", why);
+    if (why != lmError)
+        strlcpy(lmError, why, sizeof(lmError));
+    LogSerial.printf("[Layout] Stopped: %s\n", lmError);
     Serial.flush();
     return false;
 }
@@ -237,18 +238,26 @@ static bool lmFetchFull(WiFiClientSecure &client)
     bool found = suFetchLatest(client);
     suForceFull = false;
     if (!found || !suAssetUrl[0] || strstr(suAssetUrl, "-lite"))
-        return lmFail(found ? "The latest release has no full edition" : "Couldn't reach GitHub");
+    {
+        if (!found)
+            snprintf(lmError, sizeof(lmError), "%s", suError[0] ? suError : "Couldn't reach GitHub");
+        return lmFail(found ? "The latest release has no full edition" : lmError);
+    }
     if (suAssetSize < 100000 || suAssetSize > LM_NEW_SLOT)
         return lmFail("The full edition's size looks wrong");
-    if (!suSigUrl[0])
+    if (!suSigUrl[0] && suInlineSigLen < 8)
         return lmFail("The full edition isn't signed");
     client.stop();
 
     lmSay("Getting the signature");
     static uint8_t sig[80];
-    int sigLen = suFetchSignature(client, sig, sizeof(sig));
+    int sigLen = suGetSignature(client, sig, sizeof(sig));
     if (sigLen < 8)
-        return lmFail("Couldn't download the signature");
+    {
+        snprintf(lmError, sizeof(lmError), "Couldn't download the signature (%s)",
+                 suSigCode < 0 ? suConnErr(suSigCode).c_str() : String(suSigCode).c_str());
+        return lmFail(lmError);
+    }
 
     lmSay("Making room");
     uint32_t span = (suAssetSize + 4095) & ~4095u;
@@ -261,15 +270,24 @@ static bool lmFetchFull(WiFiClientSecure &client)
     http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     int code = -1;
-    if (http.begin(client, suAssetUrl))
+    for (int attempt = 1; attempt <= 3; attempt++)
     {
-        http.setUserAgent("BLLED-Plus/" STRVERSION);
-        code = http.GET();
+        if (http.begin(client, suAssetUrl))
+        {
+            http.setUserAgent("BLLED-Plus/" STRVERSION);
+            code = http.GET();
+        }
+        if (code > 0 || attempt == 3)
+            break;
+        LogSerial.printf("[Layout] Starting the download failed (%s) - trying again\n", suConnErr(code).c_str());
+        http.end();
+        client.stop();
+        vTaskDelay(pdMS_TO_TICKS(2000 * attempt));
     }
     if (code != 200)
     {
         http.end();
-        snprintf(lmError, sizeof(lmError), "Download failed (%d)", code);
+        snprintf(lmError, sizeof(lmError), "Download failed (%s)", code < 0 ? suConnErr(code).c_str() : String(code).c_str());
         return lmFail(lmError);
     }
     otaTotal = suAssetSize;

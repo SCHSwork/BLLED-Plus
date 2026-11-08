@@ -51,6 +51,13 @@ jobs:
             openssl dgst -sha256 -verify "$RUNNER_TEMP/pub.pem" -signature "$F.sig" "$F"
           done
           rm -f "$RUNNER_TEMP/key.pem"
+          # Also put each signature in the release notes as a hidden comment: controllers on
+          # 2.8.25+ read it from there and don't need to download the .sig file
+          printf '\n' >> "$NOTES"
+          for F in "$FILE" "$LITE"; do
+            [ -f "$F.sig" ] || continue
+            echo "<!-- blled-sig $(basename "$F") $(base64 -w0 "$F.sig") -->" >> "$NOTES"
+          done
           # Upload one file at a time, lite first: updaters before 2.8.20 take the first .ota and
           # first .ota.sig they see, and the lite edition installs on every controller.
           if [ -f "$LITE" ]; then

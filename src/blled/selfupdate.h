@@ -29,6 +29,7 @@
 #include "signing_key.h"
 #include "mbedtls/sha256.h"
 #include "mbedtls/pk.h"
+#include "mbedtls/base64.h"
 
 #define SU_REPO "SCHSwork/BLLED-Plus"
 
@@ -46,7 +47,9 @@ volatile bool suBusy = false;         // a check or download is running
 char suLatest[24] = "";               // latest release tag on GitHub, e.g. "v2.8.5"
 char suAssetUrl[200] = "";
 char suSigUrl[200] = "";
-bool suForceFull = false;             // moving to the larger layout: fetch the full edition               // the release's signature file
+bool suForceFull = false;
+uint8_t suInlineSig[80];              // signature found in the release notes (no separate download)
+int suInlineSigLen = 0;             // moving to the larger layout: fetch the full edition               // the release's signature file
 uint32_t suAssetSize = 0;
 char suError[150] = "";
 char suBadTag[24] = "";               // a release that failed to start: never auto-install it again
@@ -142,7 +145,20 @@ static void suMakeRoom(bool always)
     vTaskDelay(pdMS_TO_TICKS(300));
 }
 
-static bool suFetchLatest(WiFiClientSecure &client)
+// What went wrong connecting, in words. "Connection refused" from the HTTP client really means
+// the controller couldn't open the connection itself - usually not enough memory for encryption.
+static String suConnErr(int code)
+{
+    char b[96];
+    if (code == HTTPC_ERROR_CONNECTION_REFUSED)
+        snprintf(b, sizeof(b), "couldn't open a secure connection - free memory %u KB, largest block %u KB",
+                 ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
+    else
+        snprintf(b, sizeof(b), "%s - free memory %u KB", HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap() / 1024);
+    return String(b);
+}
+
+static bool suFetchLatestOnce(WiFiClientSecure &client)
 {
     HTTPClient http;
     http.useHTTP10(true); // no chunked transfer, so the JSON can be read straight off the stream
@@ -154,7 +170,7 @@ static bool suFetchLatest(WiFiClientSecure &client)
     }
     http.setUserAgent("BLLED-Plus/" STRVERSION);
     http.addHeader("Accept", "application/vnd.github+json");
-    LogSerial.printf("[Update] Asking GitHub for the latest release (free memory %u KB)\n", ESP.getFreeHeap() / 1024);
+    LogSerial.printf("[Update] Asking GitHub for the latest release (free memory %u KB, largest block %u KB)\n", ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
     int code = http.GET();
     LogSerial.printf("[Update] GitHub answered %d\n", code);
     if (code != 200)
@@ -162,7 +178,7 @@ static bool suFetchLatest(WiFiClientSecure &client)
         if (code == 404)
             strlcpy(suError, "No releases published yet", sizeof(suError));
         else if (code < 0)
-            snprintf(suError, sizeof(suError), "Couldn't reach GitHub (%s)", HTTPClient::errorToString(code).c_str());
+            snprintf(suError, sizeof(suError), "Couldn't reach GitHub (%s)", suConnErr(code).c_str());
         else
             snprintf(suError, sizeof(suError), "GitHub answered %d", code);
         suFail(suError);
@@ -171,6 +187,7 @@ static bool suFetchLatest(WiFiClientSecure &client)
     }
     JsonDocument filter;
     filter["tag_name"] = true;
+    filter["body"] = true; // the release notes carry the signatures (hidden comments)
     filter["assets"][0]["name"] = true;
     filter["assets"][0]["size"] = true;
     filter["assets"][0]["browser_download_url"] = true;
@@ -218,13 +235,31 @@ static bool suFetchLatest(WiFiClientSecure &client)
     suAssetSize = useFull ? fullSize : liteSize;
     if (suAssetUrl[0])
         LogSerial.printf("[Update] Using %s (%u bytes, room %u)\n", (useFull ? fullName : liteName).c_str(), (unsigned)suAssetSize, (unsigned)room);
+    // Signature in the release notes: "<!-- blled-sig <file name> <base64> -->"
+    suInlineSigLen = 0;
+    {
+        const char *body = doc["body"] | "";
+        String key = "blled-sig " + (useFull ? fullName : liteName) + " ";
+        const char *at = strstr(body, key.c_str());
+        if (at && (useFull ? fullName : liteName).length())
+        {
+            at += key.length();
+            size_t len = 0;
+            while (at[len] && at[len] != ' ' && at[len] != '-' && at[len] != '\r' && at[len] != '\n' && len < 200)
+                len++;
+            size_t out = 0;
+            if (mbedtls_base64_decode(suInlineSig, sizeof(suInlineSig), &out, (const unsigned char *)at, len) == 0 && out >= 8)
+                suInlineSigLen = out;
+        }
+    }
     suChecked = true;
     LogSerial.printf("[Update] Latest on GitHub: %s (running %s)\n", suLatest, STRVERSION);
     return true;
 }
 
 // Download the small signature file into sig[] (DER-encoded ECDSA signature)
-static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
+static int suSigCode = 0;
+static int suFetchSignatureOnce(WiFiClientSecure &client, uint8_t *sig, size_t max)
 {
     HTTPClient http;
     http.useHTTP10(true);
@@ -234,6 +269,7 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
         return -1;
     http.setUserAgent("BLLED-Plus/" STRVERSION);
     int code = http.GET();
+    suSigCode = code;
     int n = -1;
     if (code == 200)
     {
@@ -242,18 +278,33 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
         int size = http.getSize();
         if (size > 0 && (size_t)size < max)
             max = size;
-        WiFiClient *s = http.getStreamPtr();
-        unsigned long t0 = millis();
-        n = 0;
-        while ((size_t)n < max && millis() - t0 < 10000)
+        // Let the HTTP client read it: it knows from the headers where the file ends (reading
+        // "until the connection closes" waited for the server and sometimes timed out)
+        struct Sink : public Stream
         {
-            if (s->available())
-                sig[n++] = s->read();
-            else if (!s->connected())
-                break;
-            else
-                vTaskDelay(pdMS_TO_TICKS(5));
-        }
+            uint8_t *b;
+            size_t n = 0, max;
+            Sink(uint8_t *buf, size_t m) : b(buf), max(m) {}
+            size_t write(uint8_t c) override
+            {
+                if (n < max)
+                    b[n++] = c;
+                return 1;
+            }
+            size_t write(const uint8_t *d, size_t len) override
+            {
+                for (size_t i = 0; i < len; i++)
+                    write(d[i]);
+                return len;
+            }
+            int available() override { return 0; }
+            int read() override { return -1; }
+            int peek() override { return -1; }
+            void flush() override {}
+        } sink(sig, max);
+        http.setTimeout(8000);
+        int w = http.writeToStream(&sink);
+        n = w < 0 && sink.n == 0 ? -1 : (int)sink.n;
     }
     http.end();
     client.stop();
@@ -261,6 +312,54 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
     if (n >= 2 && sig[0] == 0x30 && sig[1] < 0x80 && n > sig[1] + 2)
         n = sig[1] + 2;
     return n;
+}
+
+// GitHub connections sometimes fail for a moment (Wi-Fi, memory): try a few times before giving up
+static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max);
+// The signature for the chosen file: from the release notes if it's there, else its .sig file
+static int suGetSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
+{
+    if (suInlineSigLen >= 8 && (size_t)suInlineSigLen <= max)
+    {
+        memcpy(sig, suInlineSig, suInlineSigLen);
+        LogSerial.println(F("[Update] Signature found in the release notes"));
+        return suInlineSigLen;
+    }
+    if (!suSigUrl[0])
+        return -2;
+    return suFetchSignature(client, sig, max);
+}
+static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
+{
+    for (int attempt = 1;; attempt++)
+    {
+        int n = suFetchSignatureOnce(client, sig, max);
+        if (n >= 8 || attempt >= 3)
+            return n;
+        LogSerial.printf("[Update] Getting the signature failed (%s) - trying again\n",
+                         suSigCode < 0 ? suConnErr(suSigCode).c_str() : String(suSigCode).c_str());
+        vTaskDelay(pdMS_TO_TICKS(2000 * attempt));
+    }
+}
+
+static bool suFetchLatest(WiFiClientSecure &client)
+{
+    SuState before = suState;
+    for (int attempt = 1;; attempt++)
+    {
+        if (suFetchLatestOnce(client))
+        {
+            suState = before; // an earlier attempt may have marked it failed
+            suError[0] = 0;
+            return true;
+        }
+        client.stop();
+        if (attempt >= 3 || strstr(suError, "No releases"))
+            return false;
+        LogSerial.printf("[Update] %s - trying again\n", suError);
+        suState = before;
+        vTaskDelay(pdMS_TO_TICKS(2000 * attempt));
+    }
 }
 
 // True if sig is a valid signature of this SHA-256 hash by the release key. The mbedTLS result
@@ -320,7 +419,7 @@ static bool suDownload(WiFiClientSecure &client)
     // Only firmware signed with the BLLED Plus release key gets installed
     static uint8_t sig[80];
     LogSerial.println(F("[Update] Getting the signature"));
-    int sigLen = suSigUrl[0] ? suFetchSignature(client, sig, sizeof(sig)) : -2;
+    int sigLen = suGetSignature(client, sig, sizeof(sig));
     if (sigLen < 8)
     {
         suFail(sigLen == -2 ? "This release isn't signed, so it wasn't installed" : "Couldn't download the release's signature");
@@ -347,15 +446,24 @@ static bool suDownload(WiFiClientSecure &client)
     http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // GitHub sends the file from its download servers
     int code = -1;
-    if (http.begin(client, suAssetUrl))
+    for (int attempt = 1; attempt <= 3; attempt++)
     {
-        http.setUserAgent("BLLED-Plus/" STRVERSION);
-        code = http.GET();
+        if (http.begin(client, suAssetUrl))
+        {
+            http.setUserAgent("BLLED-Plus/" STRVERSION);
+            code = http.GET();
+        }
+        if (code == 200 || code > 0 || attempt == 3)
+            break;
+        LogSerial.printf("[Update] Starting the download failed (%s) - trying again\n", suConnErr(code).c_str());
+        http.end();
+        client.stop();
+        vTaskDelay(pdMS_TO_TICKS(2000 * attempt));
     }
     if (code != 200)
     {
         if (code < 0)
-            snprintf(suError, sizeof(suError), "Download failed: %s (free memory %u KB)", HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap() / 1024);
+            snprintf(suError, sizeof(suError), "Download failed: %s", suConnErr(code).c_str());
         else
             snprintf(suError, sizeof(suError), "Download failed (GitHub answered %d)", code);
         http.end();
