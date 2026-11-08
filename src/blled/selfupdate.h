@@ -214,6 +214,11 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
     int n = -1;
     if (code == 200)
     {
+        // Read exactly as many bytes as GitHub says the file has (reading "until the end"
+        // picked up a stray extra byte)
+        int size = http.getSize();
+        if (size > 0 && (size_t)size < max)
+            max = size;
         WiFiClient *s = http.getStreamPtr();
         unsigned long t0 = millis();
         n = 0;
@@ -229,6 +234,9 @@ static int suFetchSignature(WiFiClientSecure &client, uint8_t *sig, size_t max)
     }
     http.end();
     client.stop();
+    // The signature says its own length (DER: 0x30, length): ignore anything after it
+    if (n >= 2 && sig[0] == 0x30 && sig[1] < 0x80 && n > sig[1] + 2)
+        n = sig[1] + 2;
     return n;
 }
 
