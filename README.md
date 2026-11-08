@@ -1,6 +1,6 @@
 # BLLED Plus
 
-Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It started as a fork of [DutchDevelop's BLLEDController](https://github.com/DutchDevelop/BLLEDController) 2.3.0 and adds smarter lighting, a new web interface and a more stable connection. Tested on an X1C.
+Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It started as a fork of [DutchDevelop's BLLEDController](https://github.com/DutchDevelop/BLLEDController) 2.3.0 and adds smarter lighting, a new web interface, updates straight from GitHub and a more stable connection. Tested on an X1C, with support for the H2 series (both nozzles, the external spools, and the H2C's Vortek hotend rack).
 
 > Not made or endorsed by DutchDevelop or Bambu Lab. Same license as the original (CC BY-NC-SA 4.0): free for personal use, not for sale.
 
@@ -8,23 +8,38 @@ Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It start
 
 ## Install
 
+### Which file: full or lite
+
+Each release has two files:
+
+- **`BLLC_V<version>-lite.bin.ota`**: for controllers on the **original BLLED storage layout**. That's every controller bought from DutchDevelop or set up with the official web flasher. If you're not sure, use this one.
+- **`BLLC_V<version>.bin.ota`** (full): for controllers moved to the **larger layout** (see below). It also has the web log page and the Watch printer messages testing tool.
+
+If you upload the full file to a controller on the original layout, the update page says there isn't enough space. Nothing breaks: just use the lite file. Once you're on BLLED Plus, you don't need to choose: **Update from GitHub** picks the right file for your controller. The status page shows "lite" after the firmware version if you're on lite.
+
 ### Update a controller that's already set up
 
 Works from the official BLLED firmware or an older BLLED Plus. Your settings carry over.
 
-1. Download the newest `BLLC_V*.bin.ota` from [Releases](../../releases). On a phone, save it to your Downloads.
-2. On the same Wi-Fi as the controller, open **http://blled.local/fwupdate**, or open **http://blled.local** and tap **Update firmware** at the bottom of the settings page. (From 2.7.3 on, `/update` works too.)
+1. Download the right `.bin.ota` from [Releases](../../releases) (see above). On a phone, save it to your Downloads.
+2. On the same Wi-Fi as the controller, open **http://blled.local/fwupdate**, or open **http://blled.local** and tap **Update firmware** at the bottom of the settings page.
    If blled.local doesn't load, use the controller's number instead (for example `http://192.168.1.42/fwupdate`). Your router's app lists it under connected devices.
 3. Choose the `.bin.ota` file and upload it. Don't unplug anything until it says it's done.
-4. Wait about 30 seconds for the restart, then open **http://blled.local/status**. The firmware version is at the bottom.
+4. The page goes back to the home page once the controller is running the new version.
 
 **Going back:** upload an official BLLED firmware file the same way.
 
-### Updates from GitHub (2.8.5 and newer)
+### Updates from GitHub
 
-Once you're on 2.8.5, you don't need to download anything: open the update page and tap **Install**. The controller downloads the new release from GitHub itself.
+Once you're on BLLED Plus, you don't need to download anything: open the update page and tap **Install** in the **Update from GitHub** card. The controller downloads the new release itself and checks its signature, so it only installs releases from this project. If it says it couldn't reach GitHub, tap **Check again**; the message says what went wrong.
 
 To have it update by itself, turn on **Install new versions automatically** under **Updates** in the settings. It only installs while the printer isn't printing, and you can limit it to certain hours. If a new version doesn't start properly, the controller goes back to the version it had and won't try that release again on its own.
+
+### Moving to the larger layout (optional)
+
+Controllers on the original layout can switch to the larger layout over Wi-Fi with **Move to the larger layout** on the update page, and then get the full edition. It takes about 2 minutes and keeps your settings. Keep it plugged in until it's done: for a fraction of a second it rewrites the table that divides up the chip's storage, and losing power at exactly that moment means re-flashing over USB. Losing power at any other point is fine. Lite gets every lighting feature, so the move is only worth it if you want the web log page or the testing tool.
+
+Over USB, `migrate-layout.bat` does the same without that risk (it backs up the settings first).
 
 ### Set up a brand-new controller
 
@@ -40,7 +55,7 @@ To have it update by itself, turn on **Install new versions automatically** unde
 ### Settings
 
 - **http://blled.local/** - lights, colors, effects and everything else
-- **http://blled.local/status** - what the strip is doing, print progress, temperatures and connection health
+- **http://blled.local/status** - what the strip is doing, print progress, temperatures, connection health, the **Activity log**, and **Restart controller** / **Reconnect to printer** buttons
 - **http://blled.local/backuprestore** - save your settings to a file and restore them
 
 Each setting has a **Preview** button that shows it on the real strip without saving.
@@ -50,6 +65,10 @@ Each setting has a **Preview** button that shows it on the real strip without sa
 - If the page won't open in Chrome on Android, try Samsung Internet or Firefox. Some browsers force `https://`, and the controller only speaks `http://`.
 - Give the controller a fixed address in your router (often called *address reservation* or *DHCP reservation*), so a router restart never moves it.
 
+### Phone app (Android)
+
+The BLLED Plus app opens your controller's pages without typing an address, and file uploads (firmware and settings backups) work in it. Download `BLLED-Plus-app-<version>.apk` from the newest **app-v** release on the [Releases](../../releases) page and install it (allow installing from your browser when Android asks). The app checks for its own updates.
+
 ### Troubleshooting
 
 | What you see | What to do |
@@ -58,8 +77,12 @@ Each setting has a **Preview** button that shows it on the real strip without sa
 | Status page says the serial belongs to a different printer | Tap the button on the status page to use the printer that's actually at that address. |
 | "Connected, but the printer isn't sending anything" | The serial number is for a different printer. Re-enter it. |
 | Can't reach the controller | Try `http://blled.local`. Check that your phone is on the same Wi-Fi, not a guest network. Unplugging the controller for 10 seconds restarts it. |
+| "Not enough space" when uploading | Your controller is on the original layout. Upload the `-lite` file instead. |
+| "Couldn't reach GitHub" | Tap **Check again**. The message says whether it was the internet, memory or GitHub itself. |
+| Not connecting to the printer after a restart | Give it a minute, it keeps retrying. If it doesn't come back, tap **Reconnect to printer** on the status page. |
+| High-pitched whine from the controller | Turn on **Silent mode** in the settings. |
 
-The log is at **http://blled.local/webserial** if you need to see what the controller is doing.
+The **Activity log** on the status page shows what the controller has been doing, including why it last restarted. If it ever crashes or freezes, the next start adds a **[Crash]** entry. Please include those lines when you report a problem. On the full edition, the live log is also at **http://blled.local/webserial**.
 
 ## What it does
 
@@ -80,13 +103,21 @@ The log is at **http://blled.local/webserial** if you need to see what the contr
 
 **Around the house**
 - **Door work light**, and lights the door turned on go back off when it closes.
+- **Lights on for the camera**: opening the printer's camera in Bambu Handy turns the printer's light (and the strip) on, then back off after a time you choose. The printer doesn't say when the camera closes, so it's a timer.
 - **Dims when idle** before turning off, and **quiet hours** at night.
 - **Printer light sync**: the chamber light follows the strip outside prints.
 - **Preview** any color or effect on the real strip before saving.
 
+**H2 series**
+- Follows the active nozzle and the spool feeding it, including the external spools.
+- H2C: its own color while the Vortek rack is picking, placing or swapping a hotend.
+
 **Web interface and connection**
 - New settings and status pages: print progress, time left, "done around", temperatures, connection health and the controller's address.
 - Non-blocking LEDs, MQTT back-off and watchdog, Wi-Fi recovery, and a settings-page self-check that restarts a frozen web server (never mid-print).
+- **Settings that survive power cuts**: saved so a cut mid-save can't damage them, never wiped when they can't be read right after power comes back, and kept in a second copy in case the storage is ever reformatted.
+- **Signed updates from GitHub**, optional automatic updates, and going back to the previous version if a new one doesn't start.
+- **Silent mode** for controllers that whine while the strip is dimmed.
 - The controller shows up as "BLLED" in your router and at `blled.local`.
 
 ## Screenshots
@@ -98,10 +129,11 @@ The log is at **http://blled.local/webserial** if you need to see what the contr
 ## Building from source
 
 - **Windows:** install PlatformIO, then run `build-firmware.bat`. `flash-firmware.bat` flashes over USB.
-- **Linux:** `tools/build-ota-linux.sh <toolchain-dir>` builds the `.bin.ota` with arduino-cli.
+- **Linux:** `tools/build-ota-linux.sh <toolchain-dir>` builds the `.bin.ota` with arduino-cli, plus the `.elf` for decoding crash reports. `EDITION=lite` builds the lite edition. `tools/decode-crash.sh <elf> <addresses>` turns a `[Crash]` entry into code lines (the `.elf` must come from the exact version that crashed).
 - The web pages in `src/www` are compressed into `.h` files by `pre_build.py` before every build. Those generated files aren't checked in.
-- **Releases:** putting `releases/BLLC_V<version>.bin.ota` (and optionally `releases/notes-v<version>.md`) on `main` makes the Release workflow publish it, signed with the `BLLED_SIGNING_KEY` repository secret. Controllers on 2.8.11 and newer only install GitHub updates whose signature matches the public key in `src/blled/signing_key.h`, so a fork needs its own key pair there and in its secrets.
-- BLLED Plus builds use a larger firmware space (`min_spiffs.csv`), but every release is kept small enough (1,310,720 bytes) for controllers still on the original BLLED layout, so the same `.bin.ota` works on both. The Release workflow refuses anything bigger. To move one to the larger layout over USB without losing settings, run `migrate-layout.bat` (it backs up the settings first).
+- **Releases:** putting `releases/BLLC_V<version>.bin.ota`, `releases/BLLC_V<version>-lite.bin.ota` and optionally `releases/notes-v<version>.md` on `main` makes the Release workflow publish them, signed with the `BLLED_SIGNING_KEY` repository secret. Controllers only install GitHub updates whose signature matches the public key in `src/blled/signing_key.h`, so a fork needs its own key pair there and in its secrets.
+- **Size limits:** the lite edition must fit the original layout's 1,310,720-byte slots, the full edition the larger layout's 1,966,080 (`min_spiffs.csv`). The Release workflow refuses anything bigger.
+- **Phone app:** changes under `android/` on `main` make the Android app workflow build and sign the APK and publish it as an `app-v<version>` pre-release.
 
 ---
 
@@ -115,6 +147,7 @@ BLLED Plus, like the original BL Led Controller, is released under Creative Comm
 
 **BLLED Plus**
 - **[Lincoln (SCHSwork)](https://github.com/SCHSwork)**: creator of BLLED Plus. New lighting features, web interface, phone app, connection fixes and testing on the X1C.
+- **Community testers on Discord**, including 4x4ffsa (first move to the larger layout over Wi-Fi), nspike05 and Code_No_One, for bug reports and testing.
 
 **Original BLLEDController**, which BLLED Plus is built on
 - **[DutchDeveloper](https://dutchdevelop.com/)**: creator and lead programmer
