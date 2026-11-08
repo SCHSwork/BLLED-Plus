@@ -145,16 +145,31 @@ static void suMakeRoom(bool always)
     vTaskDelay(pdMS_TO_TICKS(300));
 }
 
-// What went wrong connecting, in words. "Connection refused" from the HTTP client really means
-// the controller couldn't open the connection itself - usually not enough memory for encryption.
+// What went wrong connecting, in words. "Connection refused" from the HTTP client means the
+// secure connection didn't open; the encryption library's own error says why.
+static WiFiClientSecure *suClient = nullptr; // the connection in use, for its error details
 static String suConnErr(int code)
 {
-    char b[96];
-    if (code == HTTPC_ERROR_CONNECTION_REFUSED)
-        snprintf(b, sizeof(b), "couldn't open a secure connection - free memory %u KB, largest block %u KB",
-                 ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
-    else
+    char b[110];
+    if (code != HTTPC_ERROR_CONNECTION_REFUSED)
+    {
         snprintf(b, sizeof(b), "%s - free memory %u KB", HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap() / 1024);
+        return String(b);
+    }
+    char e[2];
+    int tls = suClient ? suClient->lastError(e, sizeof(e)) : 0;
+    unsigned heap = ESP.getFreeHeap() / 1024, block = ESP.getMaxAllocHeap() / 1024;
+    IPAddress ip;
+    if (tls == -0x7F00 || tls == -0x0010 || tls == -0x3F80) // out of memory (TLS, numbers, keys)
+        snprintf(b, sizeof(b), "not enough memory for a secure connection - free %u KB, largest block %u KB", heap, block);
+    else if (tls == -0x2700)
+        snprintf(b, sizeof(b), "GitHub's certificate couldn't be checked");
+    else if (tls < -1)
+        snprintf(b, sizeof(b), "secure connection failed, error -0x%04X - free %u KB, largest block %u KB", -tls, heap, block);
+    else if (!WiFi.hostByName("api.github.com", ip))
+        snprintf(b, sizeof(b), "couldn't look up GitHub's address - the router or internet may be down");
+    else
+        snprintf(b, sizeof(b), "no answer from GitHub in time - the internet connection may be slow or down");
     return String(b);
 }
 
@@ -354,11 +369,11 @@ static bool suFetchLatest(WiFiClientSecure &client)
             return true;
         }
         client.stop();
-        if (attempt >= 3 || strstr(suError, "No releases"))
+        if (attempt >= 4 || strstr(suError, "No releases"))
             return false;
-        LogSerial.printf("[Update] %s - trying again\n", suError);
+        LogSerial.printf("[Update] %s - trying again (%d of 4)\n", suError, attempt + 1);
         suState = before;
-        vTaskDelay(pdMS_TO_TICKS(2000 * attempt));
+        vTaskDelay(pdMS_TO_TICKS(3000 * attempt));
     }
 }
 
@@ -577,6 +592,7 @@ static void suTask(void *)
         WiFiClientSecure client;
         client.setCACertBundle(certBundle);
         client.setHandshakeTimeout(20);
+        suClient = &client;
         if (suFetchLatest(client))
         {
             bool allowed = suManual || strcmp(suLatest, suBadTag) != 0;
@@ -586,6 +602,7 @@ static void suTask(void *)
                 suState = SU_IDLE;
         }
         client.stop();
+        suClient = nullptr;
     }
     suLastCheckMs = millis();
     suMode = 0;

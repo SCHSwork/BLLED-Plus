@@ -384,8 +384,10 @@ static void lmTask(void *)
             WiFiClientSecure client;
             client.setCACertBundle(certBundle);
             client.setHandshakeTimeout(20);
+            suClient = &client;
             ok = lmFetchFull(client);
             client.stop();
+            suClient = nullptr;
         }
         if (!ok)
             break;
