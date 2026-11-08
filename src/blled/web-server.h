@@ -18,6 +18,7 @@ AsyncWebSocket ws("/ws");
 #ifdef BLLED_LITE
 #include "layoutmigrate.h"
 #endif
+#include "hms_table.h" // full edition only (empty in lite)
 
 unsigned long lastWsPush = 0;
 const unsigned long wsPushInterval = 1000; // alle 1000ms
@@ -647,6 +648,13 @@ void fillStatusJson(JsonDocument &doc)
                  (int)(c >> 48), (int)((c >> 32) & 0xFFFF), (int)((c >> 16) & 0xFFFF), (int)(c & 0xFFFF));
         doc["hmsCode"] = code;
     }
+    if (printerVariables.printError)
+    {
+        char pe[12];
+        snprintf(pe, sizeof(pe), "%04X_%04X", (unsigned)(printerVariables.printError >> 16), (unsigned)(printerVariables.printError & 0xFFFF));
+        doc["printError"] = pe;
+    }
+    doc["h2"] = printerVariables.perNozzleSlots; // picks the H2 wording of an error description
     doc["percent"] = printerVariables.percent;
     doc["remainingMins"] = printerVariables.remainingMins;
     doc["layer"] = printerVariables.layer;
@@ -1077,6 +1085,15 @@ void setupWebserver()
     } });
     webServer.on("/status", HTTP_GET, handleStatusPage);
     webServer.on("/api/status", HTTP_GET, handleApiStatus);
+#ifndef BLLED_LITE
+    // What each printer error code means (the lite edition's status page reads it from GitHub)
+    webServer.on("/hms.json", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        AsyncWebServerResponse *response = request->beginResponse(200, "application/json", hmsTableGz, hmsTableGzLen);
+        response->addHeader("Content-Encoding", "gzip");
+        response->addHeader("Cache-Control", "max-age=604800");
+        request->send(response); });
+#endif
     webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)
                  { request->send(200, "text/plain", "ok"); });
     // How much of a firmware upload has actually arrived (the browser's own count runs ahead)

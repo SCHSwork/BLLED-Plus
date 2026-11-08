@@ -25,6 +25,8 @@
         #alert b { display: block; color: var(--bad); }
         #alert button { margin: 12px 0 0; }
         #alert button[hidden] { display: none; }
+        #alert a { display: block; margin-top: 8px; }
+        #alert a[hidden] { display: none; }
         .quick { padding: 14px 16px 6px; }
         .quick .seg { display: flex; width: 100%; }
         .quick .seg label { flex: 1; text-align: center; }
@@ -52,6 +54,7 @@
         </section>
 
         <div class="group" id="alert" role="alert"><b id="alertTitle"></b><span id="alertText"></span>
+            <a id="alertLink" target="_blank" rel="noopener" hidden>More on the Bambu wiki</a>
             <button type="button" id="fixSerial" hidden></button>
         </div>
 
@@ -162,7 +165,34 @@
         }
         function tone(id, text, cls) { const el = $(id); el.textContent = text; el.className = cls || ''; }
 
+        // What printer error codes mean: from the controller (full edition) or from GitHub (lite).
+        // Only fetched when there's a code to explain.
+        let hmsTable = null, hmsLoading = null, hmsFailedAt = 0, lastD = null;
+        function hmsLoad() {
+            if (hmsLoading || Date.now() - hmsFailedAt < 60000) return;
+            const get = u => fetch(u).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+            hmsLoading = get('/hms.json')
+                .catch(() => get('https://raw.githubusercontent.com/SCHSwork/BLLED-Plus/main/docs/hms_en.json'))
+                .then(t => { hmsTable = t; if (lastD) render(lastD); loadLog(); })
+                .catch(() => { hmsFailedAt = Date.now(); hmsLoading = null; });
+        }
+        function hmsText(kind, code) {
+            if (!hmsTable) { hmsLoad(); return ''; }
+            const e = hmsTable[kind][String(code).replace(/_/g, '')];
+            if (!e) return '';
+            if (typeof e === 'string') return e;
+            // Some codes have different wording per printer: the H2 one on H2 printers, else the general one
+            const h2 = lastD && lastD.h2;
+            const pick = (h2 && e.find(([, m]) => /H2/.test(m))) || e.find(([, m]) => !m) || e[0];
+            return pick[0];
+        }
+        function hmsWiki(code) {
+            const p = hmsTable && hmsTable.w[String(code).replace(/_/g, '')];
+            return 'https://wiki.bambulab.com' + (p || '/en/hms/home');
+        }
+
         function render(d) {
+            lastD = d;
             set('title', d.host || 'BLLED');
 
             const idle = d.stg_cur === -1 || d.stg_cur === 255;
@@ -186,7 +216,7 @@
             ls.textContent = d.printerConnection ? 'Connected to the printer' : (d.mqttAuthFailed ? 'Access code refused' : 'Printer offline');
 
             // Problems first
-            let title = '', text = '';
+            let title = '', text = '', link = '';
             const fix = $('fixSerial');
             fix.hidden = true;
             if (d.serialMismatch) {
@@ -202,9 +232,16 @@
                 text = 'The serial number is probably for a different printer. Check it in Wi-Fi and printer connection.';
             } else if (d.hms) {
                 title = 'Printer ' + d.hms.toLowerCase() + ' warning';
-                text = 'HMS_' + (d.hmsCode || '') + '. Look it up on the printer screen or in the Bambu wiki.';
+                const t = hmsText('h', d.hmsCode || '');
+                text = (t ? t + ' ' : '') + '(HMS_' + (d.hmsCode || '') + ')';
+                link = hmsWiki(d.hmsCode || '');
+            } else if (d.printError && d.printerConnection && ['FAILED', 'PAUSE'].includes(d.gcodeState)) {
+                title = d.gcodeState === 'PAUSE' ? 'The printer paused the print' : 'The print stopped';
+                const t = hmsText('e', d.printError);
+                text = (t ? t + ' ' : '') + '(error ' + d.printError + ')';
             }
             set('alertTitle', title); set('alertText', text);
+            $('alertLink').hidden = !link; if (link) $('alertLink').href = link;
             $('alert').classList.toggle('show', !!title);
 
             const active = d.printerConnection && d.percent >= 0 && ['RUNNING', 'PAUSE', 'PREPARE'].includes(d.gcodeState);
@@ -335,7 +372,10 @@
                 const r = await fetch('/api/log', { cache: 'no-store' });
                 const t = (await r.text()).trim();
                 const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-                el.textContent = t || 'Nothing logged yet.';
+                // Add what each printer error code means under the line that has it
+                el.textContent = (t || 'Nothing logged yet.').replace(
+                    /^.*(?:HMS_([0-9A-F]{4}_[0-9A-F]{4}_[0-9A-F]{4}_[0-9A-F]{4})|Printer error ([0-9A-F]{4}_[0-9A-F]{4})).*$/gm,
+                    (line, h, e) => { const x = h ? hmsText('h', h) : hmsText('e', e); return x ? line + '\n      -> ' + x : line; });
                 if (atBottom || el.dataset.first !== '1') { el.scrollTop = el.scrollHeight; el.dataset.first = '1'; }
             } catch (e) { el.textContent = 'Couldn’t load the activity log.'; }
         }

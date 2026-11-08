@@ -114,6 +114,7 @@ The **Activity log** on the status page shows what the controller has been doing
 
 **Web interface and connection**
 - New settings and status pages: print progress, time left, "done around", temperatures, connection health and the controller's address.
+- **Printer errors in plain English**: the status page and Activity log show what an error code means (Bambu's own description, with the H2 wording on H2 printers) and link to the Bambu wiki.
 - Non-blocking LEDs, MQTT back-off and watchdog, Wi-Fi recovery, and a settings-page self-check that restarts a frozen web server (never mid-print).
 - **Settings that survive power cuts**: saved so a cut mid-save can't damage them, never wiped when they can't be read right after power comes back, and kept in a second copy in case the storage is ever reformatted.
 - **Signed updates from GitHub**, optional automatic updates, and going back to the previous version if a new one doesn't start.
@@ -148,6 +149,8 @@ BLLED Plus, like the original BL Led Controller, is released under Creative Comm
 **BLLED Plus**
 - **[Lincoln (SCHSwork)](https://github.com/SCHSwork)**: creator of BLLED Plus. New lighting features, web interface, phone app, connection fixes and testing on the X1C.
 - **Community testers on Discord**, including 4x4ffsa (first move to the larger layout over Wi-Fi), nspike05 and Code_No_One, for bug reports and testing.
+
+**Printer error descriptions** are Bambu Lab's, collected by [ha-bambulab](https://github.com/greghesp/ha-bambulab) (MIT license, see `tools/hms/LICENSE-ha-bambulab`).
 
 **Original BLLEDController**, which BLLED Plus is built on
 - **[DutchDeveloper](https://dutchdevelop.com/)**: creator and lead programmer

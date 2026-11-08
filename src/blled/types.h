@@ -86,6 +86,7 @@ extern "C"
         int nozzleTar[2] = {0xFFFF, 0xFFFF};
         char htColor[8][7] = {};          // AMS HT units (ids 128-135, one slot each)
         char virColor[2][7] = {};         // H2 external spools: [0] = id 255, [1] = id 254
+        uint32_t printError = 0;          // print.print_error: why the printer stopped or paused a print (0 = none)
         int rackStat = -1;                 // H2C hotend rack step (device.holder.stat)
         int rackJob = 0;                   // H2C hotend rack job: 1 pick, 2 place, 3 swap
         bool amsSwitchHotend = false;      // print.ams_status main state 0x08

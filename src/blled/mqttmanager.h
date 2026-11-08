@@ -853,6 +853,18 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         }
     }
 
+    // Why the printer stopped or paused a print (shown on the status page with its description)
+    if (!messageobject["print"]["print_error"].isNull())
+    {
+        uint32_t pe = messageobject["print"]["print_error"].as<uint32_t>();
+        if (pe != printerVariables.printError)
+        {
+            printerVariables.printError = pe;
+            if (pe && (printerConfig.debugingchange || printerConfig.debuging))
+                LogSerial.printf("[MQTT] Printer error %04X_%04X\n", (unsigned)(pe >> 16), (unsigned)(pe & 0xFFFF));
+        }
+    }
+
     // Bambu Health Management System (HMS)
     if (!messageobject["print"]["hms"].isNull())
     {
