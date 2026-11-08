@@ -27,6 +27,68 @@ static bool configFileValid(const char *path)
     return ok;
 }
 
+// A second copy of the settings outside the file storage (in NVS), in case the storage ever has
+// to be formatted. Only written when it differs, so a normal start doesn't write anything.
+static void keepNvsCopy()
+{
+    File f = LittleFS.open(configPath, "r");
+    size_t n = f ? f.size() : 0;
+    HeapBuf buf(n ? n : 1);
+    if (f && n > 10 && n <= 6000 && buf.p && f.read(buf.p, n) == n)
+    {
+        Preferences p;
+        if (p.begin("blledcfg", false))
+        {
+            bool same = p.getBytesLength("cfg") == n;
+            if (same)
+            {
+                HeapBuf old(n);
+                same = old.p && p.getBytes("cfg", old.p, n) == n && memcmp(old.p, buf.p, n) == 0;
+            }
+            if (!same)
+                p.putBytes("cfg", buf.p, n);
+            p.end();
+        }
+    }
+    if (f)
+        f.close();
+}
+
+static bool recoverFrom(const char *b)
+{
+    if (!LittleFS.exists(b) || !configFileValid(b))
+        return false;
+    LittleFS.remove(configPath);
+    if (!LittleFS.rename(b, configPath))
+        return false;
+    LogSerial.printf("[Filesystem] Settings file was damaged - recovered it from %s\n", b);
+    return true;
+}
+
+static bool recoverFromNvs()
+{
+    Preferences p;
+    if (!p.begin("blledcfg", true))
+        return false;
+    size_t n = p.getBytesLength("cfg");
+    HeapBuf buf(n ? n : 1);
+    bool ok = false;
+    if (n > 10 && n <= 6000 && buf.p && p.getBytes("cfg", buf.p, n) == n)
+    {
+        File f = LittleFS.open(configPath, "w");
+        if (f)
+        {
+            f.write(buf.p, n);
+            f.close();
+        }
+        ok = configFileValid(configPath);
+        if (ok)
+            LogSerial.println(F("[Filesystem] Settings were missing or damaged - restored the saved copy"));
+    }
+    p.end();
+    return ok;
+}
+
 // At start-up: if the settings file is missing or broken, use the copy that was being saved or
 // the previous one
 void recoverConfig()
@@ -36,6 +98,13 @@ void recoverConfig()
         if (LittleFS.exists(configTmpPath))
             LittleFS.remove(configTmpPath); // a save that was cut short; the current file is fine
         return;
+    }
+    if (LittleFS.exists(configPath))
+    {
+        File t = LittleFS.open(configPath, "r");
+        if (!t)
+            return; // there but unreadable right now (a glitch): never replace it for that - loadFileSystem retries
+        t.close();
     }
     // Moved to the larger layout? The settings were kept in NVS for the move
     {
@@ -72,19 +141,10 @@ void recoverConfig()
             p.end();
         }
     }
-    const char *backups[] = {configTmpPath, configBakPath};
-    for (const char *b : backups)
-    {
-        if (LittleFS.exists(b) && configFileValid(b))
-        {
-            LittleFS.remove(configPath);
-            if (LittleFS.rename(b, configPath))
-            {
-                LogSerial.printf("[Filesystem] Settings file was damaged - recovered it from %s\n", b);
-                return;
-            }
-        }
-    }
+    // Newest first: a save that was cut short after it was written, the copy kept in NVS (always
+    // the last good save), then the previous file
+    if (recoverFrom(configTmpPath) || recoverFromNvs() || recoverFrom(configBakPath))
+        return;
 }
 
 char *generateRandomString(int length)
@@ -276,7 +336,27 @@ void saveFileSystem()
         LogSerial.println(F("[Filesystem] Saving config failed (couldn't swap the file in)"));
         return;
     }
+    keepNvsCopy();
     LogSerial.println(F("[Filesystem] Config Saved"));
+}
+
+// Settings that exist couldn't be read at start-up. Restart (up to 3 times in a row) to try
+// again; after that carry on with defaults in memory. The file itself is never touched, so the
+// next start that reads it properly gets everything back. Saving settings replaces it as usual.
+RTC_DATA_ATTR uint8_t cfgReadRetries = 0; // survives restarts, cleared by a power cut
+void settingsReadFailed()
+{
+    // Not on a just-installed version that hasn't confirmed yet: restarting it would roll it back
+    esp_ota_img_states_t st;
+    bool pending = esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+    if (cfgReadRetries < 3 && !pending)
+    {
+        cfgReadRetries++;
+        LogSerial.printf("[Filesystem] Couldn't read the settings - restarting to try again (%u of 3)\n", cfgReadRetries);
+        delay(1500);
+        ESP.restart();
+    }
+    LogSerial.println(F("[Filesystem] Couldn't read the settings - running on defaults for now. The settings file was left as it is."));
 }
 
 void loadFileSystem()
@@ -284,26 +364,27 @@ void loadFileSystem()
     LogSerial.println(F("[Filesystem] Loading config"));
 
     File configFile;
-    int attempts = 0;
-    while (attempts < 2)
+    bool exists = LittleFS.exists(configPath);
+    for (int attempt = 1; exists && attempt <= 5; attempt++)
     {
         configFile = LittleFS.open(configPath, "r");
         if (configFile)
-        {
             break;
-        }
-        attempts++;
         LogSerial.println(F("[Filesystem] Failed to open config file, retrying.."));
-        delay(2000);
+        delay(500 * attempt);
     }
     if (!configFile)
     {
-        LogSerial.print(F("[Filesystem] Failed to open config file after "));
-        LogSerial.print(attempts);
-        LogSerial.println(F(" retries"));
-
-        LogSerial.println(F("[Filesystem] Clearing config"));
-        saveFileSystem();
+        if (!exists)
+        {
+            LogSerial.println(F("[Filesystem] No settings yet - starting with defaults"));
+            saveFileSystem(); // first start: nothing to lose
+            return;
+        }
+        // The file is there but couldn't be read - often a glitch right after the power comes
+        // back. Never overwrite or delete it for that (the original firmware wrote the defaults
+        // over it): start with defaults in memory only, and restart to try again.
+        settingsReadFailed();
         return;
     }
     JsonDocument json;
@@ -425,12 +506,17 @@ void loadFileSystem()
         strlcpy(printerConfig.tz, json["tz"] | "MST7MDT,M3.2.0,M11.1.0", sizeof(printerConfig.tz));
 
         LogSerial.println(F("[Filesystem] Loaded config"));
+        cfgReadRetries = 0;
+        configFile.close();
+        keepNvsCopy(); // e.g. after restoring a settings backup, which writes the file directly
+        return;
     }
     else
     {
         LogSerial.println(F("[Filesystem] Failed loading config"));
-        LogSerial.println(F("[Filesystem] Clearing config"));
-        LittleFS.remove(configPath);
+        configFile.close();
+        settingsReadFailed(); // leaves the file alone (the original firmware deleted it)
+        return;
 
         // LogSerial.println(F("Generating new password"));
         // char* pw = generateRandomString(8);
@@ -446,6 +532,12 @@ void deleteFileSystem()
     LittleFS.remove(configPath);
     LittleFS.remove(configTmpPath);
     LittleFS.remove(configBakPath); // a reset really resets
+    Preferences p;
+    if (p.begin("blledcfg", false))
+    {
+        p.clear();
+        p.end();
+    }
 }
 
 bool hasFileSystem()
@@ -456,10 +548,13 @@ bool hasFileSystem()
 void setupFileSystem()
 {
     LogSerial.println(F("[Filesystem] Mounting LittleFS"));
-    if (!LittleFS.begin())
+    bool mounted = false;
+    for (int attempt = 1; attempt <= 3 && !(mounted = LittleFS.begin()); attempt++)
+        delay(300 * attempt); // right after the power comes back, a read can fail once
+    if (!mounted)
     {
         LogSerial.println(F("[Filesystem] Failed to mount LittleFS"));
-        LittleFS.format();
+        LittleFS.format(); // the settings come back from the saved copy (recoverConfig)
         LogSerial.println(F("[Filesystem] Formatting LittleFS"));
         // Mount again rather than restarting: a freshly installed version restarting before it has
         // confirmed it works would make the chip go back to the previous version
