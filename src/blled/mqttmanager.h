@@ -158,7 +158,9 @@ void cameraOpened()
         return;
     printerConfig.inactivityStartms = millis(); // wake the strip if it went idle
     requestLedUpdate();
-    if (!printerVariables.printerledstate)
+    // Handy often says "opened" twice in the same second: send the light command once
+    bool justSent = printerVariables.cameraLitByUs && millis() - printerVariables.cameraLitMs < 5000;
+    if (!printerVariables.printerledstate && !justSent)
     {
         publishChamberLight(true);
         printerVariables.cameraLitByUs = true;
@@ -682,16 +684,9 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
                     printerVariables.chamberLightLocked = false;
                 }
 
-                if (!printerConfig.inactivityEnabled)
-                {
-                    // Turn off LED bar immediately
-                    printerVariables.printerledstate = false;
-                    printerConfig.replicate_update = false;
-                    printerVariables.stage = 999;
-                    requestLedOff();
-                    controlChamberLight(false);
-                    LogSerial.println(F("[MQTT] Door closed – LED bar OFF (inactivity disabled)"));
-                }
+                // (The original firmware turned the strip off here whenever "Idle after" was off -
+                // even mid-print. Now closing the door puts back whatever was showing before; if the
+                // lights were off when the door opened, they go back off - see ledWasForcedByDoor.)
 
                 // Double-close detection
                 if ((millis() - printerVariables.lastdoorOpenms) < 2000)

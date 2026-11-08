@@ -1024,7 +1024,8 @@ void updateleds()
             // Back to the idle-off state, as if the inactivity timer had run out
             printerConfig.isIdleOFFActive = true;
             printerConfig.inactivityStartms = millis() - printerConfig.inactivityTimeOut - 1;
-            if (printerConfig.controlChamberLight && printerVariables.chamberLightLocked)
+            // The door turned the printer's light on too (the lock is already released by now)
+            if (printerConfig.controlChamberLight && printerVariables.printerledstate)
             {
                 controlChamberLight(false);
                 printerVariables.chamberLightLocked = false;
