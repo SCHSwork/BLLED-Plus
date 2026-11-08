@@ -77,6 +77,8 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
 
+        new AppUpdater(this, prefs).checkSoon();
+
         if (savedInstanceState != null) {
             web.restoreState(savedInstanceState);
         } else if (prefs.contains(KEY_HOST)) {
