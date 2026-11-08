@@ -9,6 +9,46 @@
 #include "types.h"
 
 const char *configPath = "/blledconfig.json";
+// Settings are written to a new file first and only then swapped in, keeping the previous
+// version, so a power cut in the middle of saving can't leave the controller without settings.
+const char *configTmpPath = "/blledconfig.tmp";
+const char *configBakPath = "/blledconfig.bak";
+
+static bool configFileValid(const char *path)
+{
+    File f = LittleFS.open(path, "r");
+    if (!f)
+        return false;
+    JsonDocument doc;
+    bool ok = !deserializeJson(doc, f) && doc["ssid"].is<const char *>();
+    f.close();
+    return ok;
+}
+
+// At start-up: if the settings file is missing or broken, use the copy that was being saved or
+// the previous one
+void recoverConfig()
+{
+    if (configFileValid(configPath))
+    {
+        if (LittleFS.exists(configTmpPath))
+            LittleFS.remove(configTmpPath); // a save that was cut short; the current file is fine
+        return;
+    }
+    const char *backups[] = {configTmpPath, configBakPath};
+    for (const char *b : backups)
+    {
+        if (LittleFS.exists(b) && configFileValid(b))
+        {
+            LittleFS.remove(configPath);
+            if (LittleFS.rename(b, configPath))
+            {
+                LogSerial.printf("[Filesystem] Settings file was damaged - recovered it from %s\n", b);
+                return;
+            }
+        }
+    }
+}
 
 char *generateRandomString(int length)
 {
@@ -170,7 +210,7 @@ void saveFileSystem()
     json["quietBrightness"] = printerConfig.quietBrightness;
     json["tz"] = printerConfig.tz;
 
-    File configFile = LittleFS.open(configPath, "w");
+    File configFile = LittleFS.open(configTmpPath, "w");
     if (!configFile)
     {
         LogSerial.println(F("[Filesystem] Failed to save config"));
@@ -178,6 +218,23 @@ void saveFileSystem()
     }
     serializeJson(json, configFile);
     configFile.close();
+    if (!configFileValid(configTmpPath))
+    {
+        LogSerial.println(F("[Filesystem] Saving config failed (the new file didn't read back) - kept the old settings"));
+        LittleFS.remove(configTmpPath);
+        return;
+    }
+    // Swap the new file in, keeping the previous one as a backup
+    if (LittleFS.exists(configPath))
+    {
+        LittleFS.remove(configBakPath);
+        LittleFS.rename(configPath, configBakPath);
+    }
+    if (!LittleFS.rename(configTmpPath, configPath))
+    {
+        LogSerial.println(F("[Filesystem] Saving config failed (couldn't swap the file in)"));
+        return;
+    }
     LogSerial.println(F("[Filesystem] Config Saved"));
 }
 
@@ -341,6 +398,8 @@ void deleteFileSystem()
 {
     LogSerial.println(F("[Filesystem] Deleting LittleFS"));
     LittleFS.remove(configPath);
+    LittleFS.remove(configTmpPath);
+    LittleFS.remove(configBakPath); // a reset really resets
 }
 
 bool hasFileSystem()
@@ -361,6 +420,7 @@ void setupFileSystem()
         ESP.restart();
     }
     LogSerial.println(F("[Filesystem] Mounted LittleFS"));
+    recoverConfig();
 };
 
 #endif
