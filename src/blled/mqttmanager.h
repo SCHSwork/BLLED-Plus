@@ -142,6 +142,53 @@ void publishChamberLight(bool on)
     LogSerial.printf("[MQTT] Chamber Light %s sent\n", on ? "ON" : "OFF");
 }
 
+// "Lights on for the camera": turn the printer's light on (the strip follows it) when someone
+// opens the camera, and back off a while after the last time it was opened. The printer doesn't
+// say when the camera is closed, so it's a timer. During a print the printer runs its own light.
+static bool printingNow()
+{
+    return printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+}
+
+void cameraOpened()
+{
+    LogSerial.println(F("[Camera] Someone opened the camera"));
+    if (!printerConfig.cameraLight || printingNow())
+        return;
+    printerConfig.inactivityStartms = millis(); // wake the strip if it went idle
+    requestLedUpdate();
+    if (!printerVariables.printerledstate)
+    {
+        publishChamberLight(true);
+        printerVariables.cameraLitByUs = true;
+        LogSerial.printf("[Camera] Light on for %d min\n", printerConfig.cameraLightMins);
+    }
+    if (printerVariables.cameraLitByUs)
+        printerVariables.cameraLitMs = millis();
+}
+
+static void cameraLightLoop()
+{
+    if (!printerVariables.cameraLitByUs)
+        return;
+    // Someone turned it off, a print started, or the setting was switched off: not ours any more
+    if (!printerConfig.cameraLight || printingNow() ||
+        (!printerVariables.printerledstate && millis() - printerVariables.cameraLitMs > 10000))
+    {
+        printerVariables.cameraLitByUs = false;
+        return;
+    }
+    if (millis() - printerVariables.cameraLitMs > (unsigned long)printerConfig.cameraLightMins * 60000UL)
+    {
+        printerVariables.cameraLitByUs = false;
+        if (printerVariables.printerledstate)
+        {
+            publishChamberLight(false);
+            LogSerial.println(F("[Camera] Light off again"));
+        }
+    }
+}
+
 void publishPushAll()
 {
     // Ask the printer for a complete status report
@@ -249,6 +296,8 @@ void mqttTask(void *parameter)
             publishPushAll();
         }
 
+        cameraLightLoop();
+
         int8_t light = pendingChamberLight;
         if (light >= 0)
         {
@@ -339,6 +388,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["ipcam"]["timelapse"] = true;
     filter["system"]["command"] = true;
     filter["system"]["led_mode"] = true;
+    filter["liveview"]["command"] = true;
 
     auto deserializeError = deserializeJson(messageobject, payload, length, DeserializationOption::Filter(filter));
     if (deserializeError)
@@ -354,6 +404,13 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     }
 
     bool Changed = false;
+
+    // Someone opened the camera (Bambu Handy asks the printer to get the live view ready)
+    if (messageobject["liveview"]["command"] == "prepare")
+    {
+        cameraOpened();
+        return;
+    }
 
     if (!messageobject["print"]["command"].isNull())
     {
@@ -942,7 +999,10 @@ static void watchMessage(const char *payload, unsigned int length)
         if (strcmp(k, "print") != 0)
         {
             String v;
-            serializeJson(top.value(), v);
+            if (strcmp(k, "liveview") == 0)
+                v = top.value()["command"] | "?"; // the rest is the camera's session password
+            else
+                serializeJson(top.value(), v);
             LogSerial.printf("[Watch] '%s' message: %.80s\n", k, v.c_str());
             continue;
         }

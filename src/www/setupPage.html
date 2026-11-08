@@ -161,6 +161,11 @@
                     <span class="txt"><b>Keep the printer's light in sync</b><small>The printer's own chamber light turns on and off with the strip, and with the door. During a print the printer controls its light itself, so the camera and lidar always get what they need.</small></span>
                     <input type="checkbox" class="tog" id="controlChamberLight" name="controlChamberLight">
                 </label>
+                <div class="row">
+                    <label for="cameraLight" class="txt"><b>Lights on for the camera</b><small>When someone opens the printer's camera in Bambu Handy, the printer's light (and the strip with it) turns on, then back off this long after the camera was last opened. Not during a print.</small></label>
+                    <span data-show-if="cameraLight"><input type="number" id="cameraLightMins" name="cameraLightMins" min="1" max="120" value="5" inputmode="numeric"> <span class="unit">min</span></span>
+                    <input type="checkbox" class="tog" id="cameraLight" name="cameraLight">
+                </div>
             </div>
 
             <div class="group">
@@ -600,7 +605,7 @@
                 const checks = {
                     maintMode: c.maintMode, discoMode: c.discoMode, replicateLedState: c.replicateled, showtestcolor: c.showtestcolor,
                     debugwifi: c.debugwifi, finishIndication: c.finishindication, finishEndDoor: c.finishExit, finishEndTimer: !c.finishExit,
-                    inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging, watchMsgs: !!c.watchMsgs,
+                    inactivityEnabled: c.inactivityEnabled, controlChamberLight: c.controlChamberLight, debuging: c.debuging, watchMsgs: !!c.watchMsgs, cameraLight: !!c.cameraLight,
                     debugingchange: c.debugingchange, mqttdebug: c.mqttdebug, p1Printer: c.p1Printer, doorSwitch: c.doorSwitch,
                     errorDetection: c.errordetection, progressFx: c.progressFx,
                     filamentColorFx: c.filamentColorFx, quietEnabled: c.quietEnabled,
@@ -623,6 +628,7 @@
 
                 $('finishTimerMins').value = num(c.finishTimerMins, 10);
                 $('inactivityMins').value = num(c.inactivityMins, 30);
+                $('cameraLightMins').value = num(c.cameraLightMins, 5);
                 $('hmsIgnoreList').value = c.hmsIgnoreList || '';
                 $('fadeMs').value = num(c.fadeMs, 600);
                 $('coolDownTemp').value = num(c.coolDownTemp, 35);

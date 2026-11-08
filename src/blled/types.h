@@ -61,6 +61,8 @@ extern "C"
         unsigned long lastdoorOpenms = 0;       // Last time door was closed
         bool chamberLightLocked = false;  // blocks replicate while true
         bool ledWasForcedByDoor = false;
+        unsigned long cameraLitMs = 0;          // last time someone opened the camera while we had the light on for it
+        bool cameraLitByUs = false;             // the printer's light is on because someone opened the camera
 
         // Live print data (for the status page, /api/status and the progress effect)
         int percent = -1;                 // mc_percent, -1 = unknown
@@ -162,6 +164,8 @@ extern "C"
         bool isIdleOFFActive = false;       // Are the lights out due to inactivity Timeout?
         unsigned long inactivityStartms = 0;    // Time the inactivity countdown is measured from
         int inactivityTimeOut = 3600000;  // 1800000 = 30mins / 600000 = 10mins / 60000 = 1mins 
+        bool cameraLight = false;       // turn the printer's light on when someone opens the camera
+        int cameraLightMins = 5;        // ...and back off this long after the last time it was opened
         // Debugging
         bool watchMsgs = false;         // testing: log new fields / camera changes in printer messages
         bool debuging = false;          //Debugging for all interactions through functions
