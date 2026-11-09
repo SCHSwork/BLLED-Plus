@@ -28,6 +28,7 @@ String clientId = "BLLED-";
 AutoGrowBufferStream stream;
 
 unsigned long lastMQTTupdate = millis();
+unsigned long lastLightCmdMs = 0; // when we last told the printer to switch its light
 
 TaskHandle_t mqttTaskHandle = NULL;
 bool mqttTaskRunning = false;
@@ -139,6 +140,7 @@ void publishChamberLight(bool on)
     String payload;
     serializeJson(doc, payload);
     mqttClient.publish(request_topic.c_str(), payload.c_str());
+    lastLightCmdMs = millis() ? millis() : 1;
 
     LogSerial.printf("[MQTT] Chamber Light %s sent\n", on ? "ON" : "OFF");
 }
@@ -840,8 +842,12 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         }
     }
 
-    // Added a delay so the slower MQTT status message doesn't reverse the "system" commands
-    if (!messageobject["print"]["lights_report"].isNull() && ((millis() - lastMQTTupdate) > 3000))
+    // Added a delay so the slower MQTT status message doesn't reverse the "system" commands.
+    // Also for a few seconds after we switched the light ourselves (door, camera): the printer's
+    // status can still show the state from before our command, and following that made the strip
+    // flash on for a moment after the door closed.
+    if (!messageobject["print"]["lights_report"].isNull() && ((millis() - lastMQTTupdate) > 3000) &&
+        (lastLightCmdMs == 0 || millis() - lastLightCmdMs > 4000))
     {
         JsonArray lightsReport = messageobject["print"]["lights_report"];
         for (JsonObject light : lightsReport)
@@ -1131,6 +1137,7 @@ void controlChamberLight(bool on)
     if (!printerConfig.controlChamberLight)
         return;
     printerVariables.printerledstate = on; // <-- Set state flag to avoid replicate overwrite
+    lastLightCmdMs = millis() ? millis() : 1; // the printer's status lags behind this for a moment
     if (!printerVariables.online)
     {
         LogSerial.println(F("[MQTT] Skipped chamber_light control – MQTT not connected"));
