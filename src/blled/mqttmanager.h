@@ -449,6 +449,8 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
     filter["print"]["vir_slot"][0]["id"] = true;
     filter["print"]["vir_slot"][0]["tray_color"] = true;
     // H2C Vortek hotend rack: what the rack is doing (from Bambu Studio's DevNozzleRack)
+    filter["print"]["device"]["ctc"]["info"]["temp"] = true; // newer printer firmware: chamber temperature
+    filter["print"]["device"]["bed"]["info"]["temp"] = true;  // ...and bed temperature
     filter["print"]["device"]["holder"]["stat"] = true;
     filter["print"]["device"]["holder"]["job"] = true;
     filter["print"]["ams_status"] = true;
@@ -533,6 +535,19 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         }
         if (!print["chamber_temper"].isNull())
             printerVariables.chamberTemp = print["chamber_temper"].as<float>();
+        // Newer printer firmware reports these in "device" instead, packed as
+        // (target << 16) | current
+        if (!print["device"]["ctc"]["info"]["temp"].isNull())
+            printerVariables.chamberTemp = print["device"]["ctc"]["info"]["temp"].as<uint32_t>() & 0xFFFF;
+        if (!print["device"]["bed"]["info"]["temp"].isNull())
+        {
+            uint32_t v = print["device"]["bed"]["info"]["temp"].as<uint32_t>();
+            float t = (v >> 16) & 0xFFFF;
+            if (t != printerVariables.bedTarget)
+                targetChanged = true;
+            printerVariables.bedTemp = v & 0xFFFF;
+            printerVariables.bedTarget = t;
+        }
         if (!print["subtask_name"].isNull())
             strlcpy(printerVariables.jobName, print["subtask_name"] | "", sizeof(printerVariables.jobName));
 
