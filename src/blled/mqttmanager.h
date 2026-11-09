@@ -143,6 +143,66 @@ void publishChamberLight(bool on)
     LogSerial.printf("[MQTT] Chamber Light %s sent\n", on ? "ON" : "OFF");
 }
 
+// Door opened: wake the lights, remember whether they were dark, borrow the printer's light
+#define DOOR_BOUNCE_MS 400
+static bool doorOpenPending = false;     // opened right after closing: maybe a bounce, not acted on yet
+static unsigned long doorOpenPendingMs = 0;
+
+static void doorOpened(unsigned long when)
+{
+    printerVariables.lastdoorOpenms = when;
+
+    // Remember if the strip was dark when the door opened, so closing the door can put it
+    // back to dark (the door only "borrows" the light). Not during a print.
+    bool stripDark = currentRed == 0 && currentGreen == 0 && currentBlue == 0 && currentWarm == 0 && currentCold == 0;
+    bool printing = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
+    printerVariables.ledWasForcedByDoor = stripDark && !printing;
+
+    // If light is off, turn it on and lock it
+    if (printerConfig.controlChamberLight && !printerVariables.printerledstate)
+    {
+        printerVariables.chamberLightLocked = true;
+        printerVariables.printerledstate = true;
+        printerConfig.replicate_update = false;
+        controlChamberLight(true);
+        printerVariables.stage = 255;
+        LogSerial.println(F("[MQTT] Door opened – Light forced ON"));
+    }
+    // Restart inactivity timer
+    printerConfig.inactivityStartms = millis();
+    printerConfig.isIdleOFFActive = false;
+}
+
+static void doorClosed()
+{
+    printerVariables.lastdoorClosems = millis();
+
+    if (printerConfig.controlChamberLight)
+        printerVariables.chamberLightLocked = false;
+
+    // (The original firmware turned the strip off here whenever "Idle after" was off -
+    // even mid-print. Now closing the door puts back whatever was showing before; if the
+    // lights were off when the door opened, they go back off - see ledWasForcedByDoor.)
+
+    // Double-close detection
+    if ((millis() - printerVariables.lastdoorOpenms) < 2000)
+        printerVariables.doorSwitchTriggered = true;
+
+    printerConfig.inactivityStartms = millis();
+    printerConfig.isIdleOFFActive = false;
+}
+
+// The door stayed open: it was a real open after all
+static void doorLoop()
+{
+    if (doorOpenPending && printerVariables.doorOpen && millis() - doorOpenPendingMs >= DOOR_BOUNCE_MS)
+    {
+        doorOpenPending = false;
+        doorOpened(doorOpenPendingMs);
+        requestLedUpdate();
+    }
+}
+
 // "Lights on for the camera": turn the printer's light on (the strip follows it) when someone
 // opens the camera, and back off a while after the last time it was opened. The printer doesn't
 // say when the camera is closed, so it's a timer. During a print the printer runs its own light.
@@ -301,6 +361,7 @@ void mqttTask(void *parameter)
         }
 
         cameraLightLoop();
+        doorLoop();
 
         int8_t light = pendingChamberLight;
         if (light >= 0)
@@ -657,49 +718,29 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
             if (doorState) // Door opened
             {
-                printerVariables.lastdoorOpenms = millis();
-
-                // Remember if the strip was dark when the door opened, so closing the door can put it
-                // back to dark (the door only "borrows" the light). Not during a print.
-                bool stripDark = currentRed == 0 && currentGreen == 0 && currentBlue == 0 && currentWarm == 0 && currentCold == 0;
-                bool printing = printerVariables.gcodeState == "RUNNING" || printerVariables.gcodeState == "PAUSE" || printerVariables.gcodeState == "PREPARE";
-                printerVariables.ledWasForcedByDoor = stripDark && !printing;
-
-                // If light is off, turn it on and lock it
-                if (printerConfig.controlChamberLight && !printerVariables.printerledstate)
+                // Right after a close this may be the door bouncing off the switch (closed hard):
+                // wait a moment and see whether it closes again before doing anything
+                if (millis() - printerVariables.lastdoorClosems < 1000)
                 {
-                    printerVariables.chamberLightLocked = true;
-                    printerVariables.printerledstate = true;
-                    printerConfig.replicate_update = false;
-                    controlChamberLight(true);
-                    printerVariables.stage = 255;
-                    LogSerial.println(F("[MQTT] Door opened – Light forced ON"));
+                    doorOpenPending = true;
+                    doorOpenPendingMs = millis();
                 }
+                else
+                {
+                    doorOpened(millis());
+                    Changed = true;
+                }
+            }
+            else if (doorOpenPending) // closed again straight away: it bounced
+            {
+                doorOpenPending = false;
+                LogSerial.printf("[MQTT] Door bounced (open for %lu ms) - ignored\n", millis() - doorOpenPendingMs);
             }
             else // Door closed
             {
-                printerVariables.lastdoorClosems = millis();
-
-                if (printerConfig.controlChamberLight)
-                {
-                    printerVariables.chamberLightLocked = false;
-                }
-
-                // (The original firmware turned the strip off here whenever "Idle after" was off -
-                // even mid-print. Now closing the door puts back whatever was showing before; if the
-                // lights were off when the door opened, they go back off - see ledWasForcedByDoor.)
-
-                // Double-close detection
-                if ((millis() - printerVariables.lastdoorOpenms) < 2000)
-                {
-                    printerVariables.doorSwitchTriggered = true;
-                }
+                doorClosed();
+                Changed = true;
             }
-
-            // Restart inactivity timer
-            printerConfig.inactivityStartms = millis();
-            printerConfig.isIdleOFFActive = false;
-            Changed = true;
         }
     }
 
