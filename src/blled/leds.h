@@ -1462,6 +1462,15 @@ void updateleds()
     // for IDLE - P1 uses 255, X1 uses -1
     if ((printerVariables.stage == -1 || printerVariables.stage == 255) && !holdingFinish() && (millis() - printerConfig.inactivityStartms < printerConfig.inactivityTimeOut))
     {
+        // Following the printer's light and it's off: stay off. (The "Replication OFF" rule above
+        // only applies once per light change, so any later redraw - the printer reporting
+        // something, an update check - used to land here and turn the strip on.)
+        if (printerConfig.replicatestate && !printerVariables.printerledstate)
+        {
+            tweenToColor(0, 0, 0, 0, 0);
+            printLogs("LED Replication OFF", 0, 0, 0, 0, 0);
+            return;
+        }
         tweenToColor(printerConfig.runningColor); // Customisable - Default is WHITE
         printLogs("Stage -1/255, IDLE", printerConfig.runningColor);
         return;
