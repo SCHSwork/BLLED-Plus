@@ -228,6 +228,7 @@ void mqttTask(void *parameter)
             {
                 mqttClient.disconnect();
                 wifiSecureClient.stop();
+                stream.release();
                 LogSerial.println(F("[MQTT] Paused for the firmware download"));
             }
             if (printerVariables.online)

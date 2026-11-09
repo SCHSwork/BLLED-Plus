@@ -1168,7 +1168,7 @@ void setupWebserver()
             return request->requestAuthentication();
         JsonDocument d;
         d["state"] = suStateName[suState];
-        d["busy"] = (bool)suBusy;
+        d["busy"] = suBusy || suBootMode >= 0; // also while a job waits to run after a restart
         d["busyFor"] = suBusy ? (long)((millis() - suStartedMs) / 1000) : 0;
         d["running"] = STRVERSION;
         d["latest"] = suLatest;
@@ -1176,6 +1176,7 @@ void setupWebserver()
         d["hasFile"] = suAssetUrl[0] != 0;
         d["signed"] = suSigUrl[0] != 0;
         d["error"] = suError;
+        d["memRestart"] = suMemRestart;
         d["rolledBack"] = suRolledBack;
         d["bad"] = suBadTag;
         d["bytes"] = (unsigned long)otaBytes;

@@ -389,6 +389,10 @@
             const btn = $g('ghInstall'), msg = $g('ghMsg'), small = $g('ghSmall');
             small.textContent = '';
             if (d.rolledBack) small.textContent = plain(d.rolledBack) + " didn't start properly, so the controller went back to " + d.running + ". It won't install " + plain(d.rolledBack) + " automatically.";
+            if (d.memRestart) {
+                msg.textContent = 'Not enough free memory in one piece for the download, so the controller is restarting to try again with fresh memory. Keep this page open.';
+                btn.hidden = true; return;
+            }
             if (d.busy && d.state === 'downloading') {
                 installing = true; btn.hidden = true; $g('ghBox').hidden = false;
                 const pct = d.total ? Math.min(100, Math.floor(d.bytes * 100 / d.total)) : 0;

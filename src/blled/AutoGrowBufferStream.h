@@ -94,6 +94,17 @@ public:
         }
     }
 
+    // The printer connection is paused (update from GitHub): hand the whole buffer back, so the
+    // memory isn't split up while the secure connection to GitHub needs large pieces
+    void release()
+    {
+        _len = 0;
+        _overflow = false;
+        free(_buffer);
+        _buffer = (char *)malloc(1024);
+        _cap = _buffer ? 1024 : 0;
+    }
+
     bool overflowed() const { return _overflow; }
     size_t wanted() const { return _wanted; }
     size_t current_length() const { return _len; }

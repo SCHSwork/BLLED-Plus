@@ -56,6 +56,10 @@ char suBadTag[24] = "";               // a release that failed to start: never a
 char suRolledBack[24] = "";           // shown on the update page after a rollback
 unsigned long suLastCheckMs = 0;
 unsigned long suStartedMs = 0;
+bool suLowMem = false;                // the last connection failed for lack of memory
+bool suMemRestart = false;            // restarting to try again with fresh memory
+int suBootMode = -1;                  // run this update job right after start-up (see suTask)
+bool suBootRun = false;               // this job is that run (don't restart for it again)
 unsigned long suResumeMqttAt = 0;     // when to let the printer connection back after a check       // when the running check/download began
 bool suChecked = false;
 
@@ -123,6 +127,16 @@ void suBootCheck()
         }
         p.remove("pending");
     }
+    // Restarted to get fresh memory for an update (see suTask): run it before the printer
+    // connection takes memory again
+    int boot = p.getInt("boot", 0);
+    if (boot)
+    {
+        p.remove("boot");
+        suBootMode = (boot - 1) >> 1;
+        suManual = (boot - 1) & 1;
+        otaPauseMqtt = true;
+    }
     p.end();
 }
 
@@ -150,6 +164,7 @@ static void suMakeRoom(bool always)
 static WiFiClientSecure *suClient = nullptr; // the connection in use, for its error details
 static String suConnErr(int code)
 {
+    suLowMem = false;
     char b[110];
     if (code != HTTPC_ERROR_CONNECTION_REFUSED)
     {
@@ -160,7 +175,8 @@ static String suConnErr(int code)
     int tls = suClient ? suClient->lastError(e, sizeof(e)) : 0;
     unsigned heap = ESP.getFreeHeap() / 1024, block = ESP.getMaxAllocHeap() / 1024;
     IPAddress ip;
-    if (tls == -0x7F00 || tls == -0x0010 || tls == -0x3F80) // out of memory (TLS, numbers, keys)
+    suLowMem = (tls == -0x7F00 || tls == -0x0010 || tls == -0x3F80); // out of memory (TLS, numbers, keys)
+    if (suLowMem)
         snprintf(b, sizeof(b), "not enough memory for a secure connection - free %u KB, largest block %u KB", heap, block);
     else if (tls == -0x2700)
         snprintf(b, sizeof(b), "GitHub's certificate couldn't be checked");
@@ -604,6 +620,25 @@ static void suTask(void *)
         client.stop();
         suClient = nullptr;
     }
+    // Not enough memory in one piece for the secure connection: memory is never as clean as
+    // right after a restart, so restart and do it then (once; not during a print, and not just
+    // for a background check)
+    if (suState == SU_FAILED && suLowMem && !suBootRun && (suManual || suMode == 1) && !printingState())
+    {
+        Preferences p;
+        if (p.begin("blledsu", false))
+        {
+            p.putInt("boot", 1 + (suMode << 1) + (suManual ? 1 : 0));
+            p.end();
+            LogSerial.println(F("[Update] Not enough memory in one piece - restarting to try again with fresh memory"));
+            suMemRestart = true;
+            suState = SU_CHECKING;
+            restartRequestTime = millis();
+            shouldRestart = true;
+            vTaskDelete(NULL); // stays "busy" until the restart
+        }
+    }
+    suBootRun = false;
     suLastCheckMs = millis();
     suMode = 0;
     if (!shouldRestart)
@@ -663,6 +698,25 @@ static bool suPrinterIdle()
 
 void selfUpdateLoop()
 {
+    // The job that was waiting for fresh memory after a restart
+    if (suBootMode >= 0 && !suBusy)
+    {
+        if (WiFi.status() == WL_CONNECTED && !(WiFi.getMode() & WIFI_AP))
+        {
+            int m = suBootMode;
+            suBootMode = -1;
+            LogSerial.println(F("[Update] Trying again with fresh memory"));
+            if (suStart(m, suManual))
+                suBootRun = true;
+            else
+                otaPauseMqtt = false;
+        }
+        else if (millis() > 90000)
+        {
+            suBootMode = -1; // no Wi-Fi: give up, let the printer connection back
+            otaPauseMqtt = false;
+        }
+    }
     if (suResumeMqttAt && !suBusy && (long)(millis() - suResumeMqttAt) >= 0)
     {
         suResumeMqttAt = 0;
