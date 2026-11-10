@@ -36,6 +36,9 @@
 void noteRestart(const char *why);
 bool printingState();
 bool clockSynced();
+#ifndef BLLED_LITE
+bool notifyBusy(); // notify.h: a notification is being sent (it needs the same memory)
+#endif
 
 enum SuState : uint8_t { SU_IDLE, SU_CHECKING, SU_DOWNLOADING, SU_INSTALLED, SU_FAILED };
 static const char *suStateName[] = {"idle", "checking", "downloading", "installed", "failed"};
@@ -660,6 +663,10 @@ bool suStart(int mode, bool manual)
 {
     if (suBusy || otaActive || shouldRestart || WiFi.status() != WL_CONNECTED)
         return false;
+#ifndef BLLED_LITE
+    if (notifyBusy())
+        return false; // tried again on the next round
+#endif
     suBusy = true;
     suResumeMqttAt = 0;
     suStartedMs = millis();

@@ -353,6 +353,9 @@ void loop()
         otaActive = false;
     }
     selfUpdateLoop();
+#ifndef BLLED_LITE
+    notifyLoop();
+#endif
 #ifdef BLLED_LITE
     lmLoop();
 #endif

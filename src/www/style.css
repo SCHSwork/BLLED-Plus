@@ -223,6 +223,22 @@ body {
 .row .txt small { display: block; color: var(--muted); font-size: 13px; }
 .row[hidden], [data-show-if][hidden] { display: none; }
 .row.sub { padding-left: 32px; }
+/* @full-only */
+
+/* Text fields inside a settings group (notifications) */
+.group > .field { padding: 12px 16px; border-top: 1px solid var(--line); }
+.group > h2 + .field, .group > .hint + .field { border-top: 0; }
+.field > small { display: block; color: var(--muted); font-size: 13px; margin: -2px 0 8px; }
+.field label small { font-weight: 400; color: var(--muted); }
+.field input:last-child, .field .secret:last-child input { margin-bottom: 0; }
+.field > button { margin: 0; }
+.secret { display: flex; gap: 8px; align-items: flex-start; }
+.secret input { flex: 1; min-width: 0; }
+.secret button { width: auto; flex: none; padding: 10px 12px; margin: 0; }
+.nstat { font-weight: 400; font-size: 12px; margin-left: 6px; }
+.nstat.ok { color: var(--good); }
+.nstat.bad { color: var(--bad); }
+/* @end-full-only */
 
 .row input[type="number"], .row input[type="time"] {
   min-width: 64px;

@@ -283,14 +283,24 @@ void mqttTask(void *parameter)
             mqttBackoffMs = MQTT_BACKOFF_MIN_MS;
             mqttNextAttemptMs = millis();
         }
+#ifndef BLLED_LITE
+        if (otaPauseMqtt || notifyPauseMqtt)
+#else
         if (otaPauseMqtt)
+#endif
         {
-            // Updating from GitHub: give the memory of the printer connection back for a moment
+            // Updating from GitHub (or sending a notification): give the memory of the printer
+            // connection back for a moment
             if (mqttClient.connected())
             {
                 mqttClient.disconnect();
                 wifiSecureClient.stop();
                 stream.release();
+#ifndef BLLED_LITE
+                if (notifyPauseMqtt && !otaPauseMqtt)
+                    LogSerial.println(F("[MQTT] Paused while a notification is sent"));
+                else
+#endif
                 LogSerial.println(F("[MQTT] Paused for the firmware download"));
             }
             if (printerVariables.online)

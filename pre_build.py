@@ -29,11 +29,50 @@ def guess_mime_type(filename):
     _, ext = os.path.splitext(filename.lower())
     return MIME_TYPES.get(ext, "application/octet-stream")
 
+FULL_START = b"@full-only"
+FULL_END = b"@end-full-only"
+
+def edition_variants(data):
+    """Lines between a line marked @full-only and one marked @end-full-only (in an HTML, CSS or
+    JS comment) are only for the full edition. Returns (full, lite); lite is None when the file
+    has no such block. The marker lines themselves are left out of both."""
+    if FULL_START not in data:
+        return data, None
+    full, lite, inside = [], [], False
+    for line in data.splitlines(keepends=True):
+        if FULL_END in line:
+            inside = False
+            continue
+        if FULL_START in line:
+            inside = True
+            continue
+        full.append(line)
+        if not inside:
+            lite.append(line)
+    return b"".join(full), b"".join(lite)
+
+def gz_array(array_name, data):
+    compressed_data = gzip.compress(data, compresslevel=9, mtime=0)
+    entry = [f"const uint8_t {array_name}_gz[] PROGMEM = {{\n"]
+    for i in range(0, len(compressed_data), 16):
+        line = ', '.join(f'0x{b:02x}' for b in compressed_data[i:i+16])
+        entry.append(f"  {line},\n")
+    entry.append("};\n\n")
+    entry.append(f"const unsigned int {array_name}_gz_len = {len(compressed_data)};\n")
+    return ''.join(entry)
+
 def compress_and_generate_entry(input_file):
     # Compress in-memory, no temp file
     with open(input_file, "rb") as infile:
         data = infile.read()
-        compressed_data = gzip.compress(data, compresslevel=9)
+    full, lite = edition_variants(data)
+    array_name = os.path.relpath(input_file, WWW_DIR).replace(os.sep, "_").replace(".", "_")
+    file = os.path.relpath(input_file, WWW_DIR)
+    if lite is not None:
+        print(f"Added: {file} as {array_name}_gz (full and lite versions)")
+        return (f"#ifndef BLLED_LITE\n{gz_array(array_name, full)}#else\n{gz_array(array_name, lite)}#endif\n"
+                f"const char * {array_name}_gz_mime = \"{guess_mime_type(input_file)}\";\n\n")
+    compressed_data = gzip.compress(data, compresslevel=9)
 
     # ------------ Generate a C array name based on the file name ------------ #
     # array_name = os.path.basename(input_file).replace(".", "_")

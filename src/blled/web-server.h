@@ -15,6 +15,7 @@ AsyncWebSocket ws("/ws");
 
 #include "../www/www.h"
 #include "selfupdate.h"
+#include "notify.h" // full edition only (empty in lite)
 #ifdef BLLED_LITE
 #include "layoutmigrate.h"
 #endif
@@ -260,6 +261,22 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["quietEnd"] = hm;
     doc["quietBrightness"] = printerConfig.quietBrightness;
     doc["tz"] = printerConfig.tz;
+#ifndef BLLED_LITE
+    // Notifications. The Discord and webhook addresses and the ntfy token work like passwords
+    // (anyone who has them can post), so only whether one is stored is sent back.
+    doc["hasDiscord"] = printerConfig.notifyDiscordUrl[0] != 0;
+    doc["hasWebhook"] = printerConfig.notifyWebhookUrl[0] != 0;
+    doc["hasNtfyToken"] = printerConfig.notifyNtfyToken[0] != 0;
+    doc["nNtfyServer"] = printerConfig.notifyNtfyServer;
+    doc["nNtfyTopic"] = printerConfig.notifyNtfyTopic;
+    doc["nFinish"] = printerConfig.notifyFinish;
+    doc["nFail"] = printerConfig.notifyFail;
+    doc["nNeedsYou"] = printerConfig.notifyNeedsYou;
+    doc["nStart"] = printerConfig.notifyStart;
+    doc["nFirstLayer"] = printerConfig.notifyFirstLayer;
+    doc["nProgress"] = printerConfig.notifyProgress;
+    doc["nProgressStep"] = printerConfig.notifyProgressStep;
+#endif
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -454,6 +471,39 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
         tzset();
         actLogTzReady = true;
     }
+
+#ifndef BLLED_LITE
+    // Notifications. The secret ones: a blank field keeps what's stored, "...Clear" removes it.
+    if (request->hasParam("notifyForm", true)) // the notifications part of the form was there
+    {
+        auto secret = [&](const char *name, const char *clearName, char *dst, size_t n) {
+            String v = getSafeParamValue(request, name);
+            v.trim();
+            if (request->hasParam(clearName, true))
+                dst[0] = 0;
+            else if (v.length())
+                strlcpy(dst, v.c_str(), n);
+        };
+        secret("nDiscord", "nDiscordClear", printerConfig.notifyDiscordUrl, sizeof(printerConfig.notifyDiscordUrl));
+        secret("nWebhook", "nWebhookClear", printerConfig.notifyWebhookUrl, sizeof(printerConfig.notifyWebhookUrl));
+        secret("nNtfyToken", "nNtfyTokenClear", printerConfig.notifyNtfyToken, sizeof(printerConfig.notifyNtfyToken));
+        String server = getSafeParamValue(request, "nNtfyServer");
+        server.trim();
+        if (server.length() == 0)
+            server = "https://ntfy.sh";
+        strlcpy(printerConfig.notifyNtfyServer, server.c_str(), sizeof(printerConfig.notifyNtfyServer));
+        String topic = getSafeParamValue(request, "nNtfyTopic");
+        topic.trim();
+        strlcpy(printerConfig.notifyNtfyTopic, topic.c_str(), sizeof(printerConfig.notifyNtfyTopic));
+        printerConfig.notifyFinish = request->hasParam("nFinish", true);
+        printerConfig.notifyFail = request->hasParam("nFail", true);
+        printerConfig.notifyNeedsYou = request->hasParam("nNeedsYou", true);
+        printerConfig.notifyStart = request->hasParam("nStart", true);
+        printerConfig.notifyFirstLayer = request->hasParam("nFirstLayer", true);
+        printerConfig.notifyProgress = request->hasParam("nProgress", true);
+        printerConfig.notifyProgressStep = constrain(getSafeParamInt(request, "nProgressStep", printerConfig.notifyProgressStep), 5, 50);
+    }
+#endif
 
     printerConfig.silentPwm = request->hasParam("silentPwm", true);
     saveFileSystem();
@@ -1093,6 +1143,28 @@ void setupWebserver()
         response->addHeader("Content-Encoding", "gzip");
         response->addHeader("Cache-Control", "max-age=604800");
         request->send(response); });
+#endif
+#ifndef BLLED_LITE
+    // Notifications: how the last send went, and a test message from the settings page
+    webServer.on("/api/notify", HTTP_GET, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        JsonDocument d;
+        notifyStatusJson(d.to<JsonObject>());
+        String s;
+        serializeJson(d, s);
+        request->send(200, "application/json", s); });
+    webServer.on("/api/notify/test", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        if (!notifyConfigured())
+            return request->send(409, "text/plain", "Set up Discord, ntfy or a webhook and save first");
+        notifyTest();
+        request->send(200, "text/plain", "Sending"); });
 #endif
     webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)
                  { request->send(200, "text/plain", "ok"); });

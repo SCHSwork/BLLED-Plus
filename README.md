@@ -13,7 +13,7 @@ Unofficial firmware for the **BLLED controller** on Bambu Lab printers. It start
 Each release has two files:
 
 - **`BLLC_V<version>-lite.bin.ota`**: for controllers on the **original BLLED storage layout**. That's every controller bought from DutchDevelop or set up with the official web flasher. If you're not sure, use this one.
-- **`BLLC_V<version>.bin.ota`** (full): for controllers moved to the **larger layout** (see below). It also has the web log page and the Watch printer messages testing tool.
+- **`BLLC_V<version>.bin.ota`** (full): for controllers moved to the **larger layout** (see below). It also has print notifications, the web log page and the Watch printer messages testing tool.
 
 If you upload the full file to a controller on the original layout, the update page says there isn't enough space. Nothing breaks: just use the lite file. Once you're on BLLED Plus, you don't need to choose: **Update from GitHub** picks the right file for your controller. The status page shows "lite" after the firmware version if you're on lite.
 
@@ -37,7 +37,7 @@ To have it update by itself, turn on **Install new versions automatically** unde
 
 ### Moving to the larger layout (optional)
 
-Controllers on the original layout can switch to the larger layout over Wi-Fi with **Move to the larger layout** on the update page, and then get the full edition. It takes about 2 minutes and keeps your settings. Keep it plugged in until it's done: for a fraction of a second it rewrites the table that divides up the chip's storage, and losing power at exactly that moment means re-flashing over USB. Losing power at any other point is fine. Lite gets every lighting feature, so the move is only worth it if you want the web log page or the testing tool.
+Controllers on the original layout can switch to the larger layout over Wi-Fi with **Move to the larger layout** on the update page, and then get the full edition. It takes about 2 minutes and keeps your settings. Keep it plugged in until it's done: for a fraction of a second it rewrites the table that divides up the chip's storage, and losing power at exactly that moment means re-flashing over USB. Losing power at any other point is fine. Lite gets every lighting feature, so the move is only worth it if you want print notifications, the web log page or the testing tool.
 
 Over USB, `migrate-layout.bat` does the same without that risk (it backs up the settings first).
 
@@ -108,6 +108,12 @@ The **Activity log** on the status page shows what the controller has been doing
 - **Printer light sync**: the chamber light follows the strip outside prints.
 - **Preview** any color or effect on the real strip before saving.
 
+**Print notifications** (full edition)
+- Sends to a **Discord** channel (webhook), the **ntfy** phone app (ntfy.sh or your own server), and/or any **webhook** as JSON (Home Assistant, Node-RED). Set them up on the **Notify** tab and use **Send a test notification**.
+- You pick what's worth a ping: print finished (with how long it took), failed or cancelled, the printer needs you (runout, clog, first-layer or spaghetti problem, AMS problem, a pause in the file, serious errors; not pauses you make), print started, first layer done, and progress every 10 / 20 / 25 / 50 %.
+- Each notification links to the controller's status page. If there isn't enough memory for the printer connection and a secure web connection at the same time, the printer connection is held for the few seconds the send takes.
+- The webhook gets `event` (`finished`, `failed`, `needs_you`, `started`, `first_layer`, `progress`, `test`), `title`, `message`, `job`, `percent`, `layer`, `totalLayers`, `remainingMins`, `printError`, `hms` and `url`.
+
 **H2 series**
 - Follows the active nozzle and the spool feeding it, including the external spools.
 - H2C: its own color while the Vortek rack is picking, placing or swapping a hotend.
@@ -131,7 +137,7 @@ The **Activity log** on the status page shows what the controller has been doing
 
 - **Windows:** install PlatformIO, then run `build-firmware.bat`. `flash-firmware.bat` flashes over USB.
 - **Linux:** `tools/build-ota-linux.sh <toolchain-dir>` builds the `.bin.ota` with arduino-cli, plus the `.elf` for decoding crash reports. `EDITION=lite` builds the lite edition. `tools/decode-crash.sh <elf> <addresses>` turns a `[Crash]` entry into code lines (the `.elf` must come from the exact version that crashed).
-- The web pages in `src/www` are compressed into `.h` files by `pre_build.py` before every build. Those generated files aren't checked in.
+- The web pages in `src/www` are compressed into `.h` files by `pre_build.py` before every build. Those generated files aren't checked in. Lines between a comment containing `@full-only` and one containing `@end-full-only` are left out of the lite edition's copy of the page.
 - **Releases:** putting `releases/BLLC_V<version>.bin.ota`, `releases/BLLC_V<version>-lite.bin.ota` and optionally `releases/notes-v<version>.md` on `main` makes the Release workflow publish them, signed with the `BLLED_SIGNING_KEY` repository secret. Controllers only install GitHub updates whose signature matches the public key in `src/blled/signing_key.h`, so a fork needs its own key pair there and in its secrets.
 - **Size limits:** the lite edition must fit the original layout's 1,310,720-byte slots, the full edition the larger layout's 1,966,080 (`min_spiffs.csv`). The Release workflow refuses anything bigger.
 - **Phone app:** changes under `android/` on `main` make the Android app workflow build and sign the APK and publish it as an `app-v<version>` pre-release.

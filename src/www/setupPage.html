@@ -36,6 +36,9 @@
             <button type="button" role="tab" data-tab="lights" aria-selected="true">Lights</button>
             <button type="button" role="tab" data-tab="stages" aria-selected="false">Stages</button>
             <button type="button" role="tab" data-tab="alerts" aria-selected="false">Alerts</button>
+            <!-- @full-only -->
+            <button type="button" role="tab" data-tab="notify" aria-selected="false">Notify</button>
+            <!-- @end-full-only -->
             <button type="button" role="tab" data-tab="effects" aria-selected="false">Effects</button>
             <button type="button" role="tab" data-tab="device" aria-selected="false">Device</button>
         </div>
@@ -278,6 +281,83 @@
                 <div class="lamps" data-lamps="wifi"></div>
             </div>
         </section>
+        <!-- @full-only -->
+
+        <!-- Notifications (full edition only: pre_build.py leaves this out of the lite page) -->
+        <section class="panel" data-panel="notify" role="tabpanel" hidden>
+            <input type="hidden" name="notifyForm" value="1">
+            <div class="group">
+                <h2>Send to</h2>
+                <p class="hint">Fill in any of these. Every notification goes to all of the ones that are set up. Leave a box empty to turn that one off.</p>
+                <div class="field">
+                    <label for="nDiscord">Discord webhook <small class="nstat" id="nStat-discord"></small></label>
+                    <small>In Discord: channel settings &rsaquo; Integrations &rsaquo; Webhooks &rsaquo; New Webhook &rsaquo; Copy Webhook URL.</small>
+                    <div class="secret">
+                        <input type="text" id="nDiscord" name="nDiscord" inputmode="url" spellcheck="false" placeholder="https://discord.com/api/webhooks/…">
+                        <button type="button" class="ghost" data-clear="nDiscord" hidden>Remove</button>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="nNtfyTopic">ntfy topic <small class="nstat" id="nStat-ntfy"></small></label>
+                    <small>Install the ntfy app, subscribe to a topic name nobody would guess (anyone who knows it can read it), and put the same name here.</small>
+                    <input type="text" id="nNtfyTopic" name="nNtfyTopic" spellcheck="false" autocapitalize="off" placeholder="my-printer-a8f3k2">
+                    <div data-show-if-text="nNtfyTopic">
+                        <label for="nNtfyServer">ntfy server</label>
+                        <input type="text" id="nNtfyServer" name="nNtfyServer" inputmode="url" spellcheck="false" placeholder="https://ntfy.sh">
+                        <label for="nNtfyToken">Access token <small>(only for a protected topic)</small></label>
+                        <div class="secret">
+                            <input type="password" id="nNtfyToken" name="nNtfyToken" spellcheck="false" placeholder="tk_…">
+                            <button type="button" class="ghost" data-clear="nNtfyToken" hidden>Remove</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="nWebhook">Webhook <small class="nstat" id="nStat-webhook"></small></label>
+                    <small>Gets a JSON POST for each notification: Home Assistant (http://homeassistant.local:8123/api/webhook/your-id), Node-RED or your own script.</small>
+                    <div class="secret">
+                        <input type="text" id="nWebhook" name="nWebhook" inputmode="url" spellcheck="false" placeholder="http://…">
+                        <button type="button" class="ghost" data-clear="nWebhook" hidden>Remove</button>
+                    </div>
+                </div>
+                <div class="field">
+                    <button type="button" class="ghost" id="nTest">Send a test notification</button>
+                </div>
+            </div>
+            <div class="group">
+                <h2>Tell me when</h2>
+                <label class="row">
+                    <span class="txt"><b>A print finishes</b><small>With how long it took.</small></span>
+                    <input type="checkbox" class="tog" id="nFinish" name="nFinish">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>A print fails or is cancelled</b></span>
+                    <input type="checkbox" class="tog" id="nFail" name="nFail">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>The printer needs you</b><small>Filament ran out, a clog, a first-layer or spaghetti problem, an AMS problem, a pause in the file, or a serious printer error. Not pauses you make yourself.</small></span>
+                    <input type="checkbox" class="tog" id="nNeedsYou" name="nNeedsYou">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>A print starts</b></span>
+                    <input type="checkbox" class="tog" id="nStart" name="nStart">
+                </label>
+                <label class="row">
+                    <span class="txt"><b>The first layer is done</b><small>A good moment to check it on the camera.</small></span>
+                    <input type="checkbox" class="tog" id="nFirstLayer" name="nFirstLayer">
+                </label>
+                <div class="row">
+                    <label for="nProgress" class="txt"><b>Progress</b><small>Every so many percent, with the time left.</small></label>
+                    <span data-show-if="nProgress"><span class="unit">every</span> <select id="nProgressStep" name="nProgressStep" style="width:auto;margin:0">
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="25">25%</option>
+                        <option value="50">50%</option>
+                    </select></span>
+                    <input type="checkbox" class="tog" id="nProgress" name="nProgress">
+                </div>
+            </div>
+        </section>
+        <!-- @end-full-only -->
 
         <!-- Effects -->
         <section class="panel" data-panel="effects" role="tabpanel" hidden>
@@ -550,6 +630,9 @@
 
         function updateVisibility() {
             document.querySelectorAll('[data-show-if]').forEach(el => el.hidden = !$(el.dataset.showIf).checked);
+            // @full-only
+            document.querySelectorAll('[data-show-if-text]').forEach(el => el.hidden = !$(el.dataset.showIfText).value.trim());
+            // @end-full-only
             document.querySelectorAll('[data-hide-if]').forEach(el => el.hidden = $(el.dataset.hideIf).checked);
         }
 
@@ -652,6 +735,29 @@
                     const el = form.querySelector(`input[name="${name}"][value="${num(c[name], d)}"]`);
                     if (el) el.checked = true;
                 }
+                // @full-only
+
+                // Notifications: the Discord / webhook addresses and the token are never sent back,
+                // only whether one is saved
+                {
+                    const secret = (id, has, ph) => {
+                        const el = $(id);
+                        el.value = '';
+                        el.placeholder = has ? 'Saved (paste a new one to replace)' : ph;
+                        form.querySelector(`[data-clear="${id}"]`).hidden = !has;
+                        form.querySelectorAll(`input[name="${id}Clear"]`).forEach(x => x.remove());
+                    };
+                    secret('nDiscord', c.hasDiscord, 'https://discord.com/api/webhooks/…');
+                    secret('nWebhook', c.hasWebhook, 'http://…');
+                    secret('nNtfyToken', c.hasNtfyToken, 'tk_…');
+                    $('nNtfyTopic').value = c.nNtfyTopic || '';
+                    $('nNtfyServer').value = c.nNtfyServer || 'https://ntfy.sh';
+                    $('nProgressStep').value = String(num(c.nProgressStep, 25));
+                    const nChecks = { nFinish: c.nFinish !== false, nFail: c.nFail !== false, nNeedsYou: c.nNeedsYou !== false, nStart: !!c.nStart, nFirstLayer: !!c.nFirstLayer, nProgress: !!c.nProgress };
+                    for (const [id, v] of Object.entries(nChecks)) $(id).checked = v;
+                    notifyStatus();
+                }
+                // @end-full-only
 
                 fadeOut();
                 refreshLamps();
@@ -679,6 +785,57 @@
             }
         });
         $('undo').addEventListener('click', loadConfig);
+        // @full-only
+
+        // ---- Notifications ----
+        form.addEventListener('input', e => { if (e.target.id === 'nNtfyTopic') updateVisibility(); });
+        form.addEventListener('click', e => {
+            const id = e.target.dataset && e.target.dataset.clear;
+            if (!id) return;
+            const h = document.createElement('input');
+            h.type = 'hidden'; h.name = id + 'Clear'; h.value = '1';
+            form.appendChild(h);
+            $(id).value = '';
+            $(id).placeholder = 'Removed when you save';
+            e.target.hidden = true;
+            setDirty(true);
+        });
+        const ago = s => s < 60 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago';
+        async function notifyStatus() {
+            try {
+                const d = await (await fetch('/api/notify', { cache: 'no-store' })).json();
+                for (const k of ['discord', 'ntfy', 'webhook']) {
+                    const s = d[k], el = $('nStat-' + k);
+                    if (!el || !s) continue;
+                    el.className = 'nstat ' + (s.state > 0 ? 'ok' : s.state < 0 ? 'bad' : '');
+                    el.textContent = s.state > 0 ? 'last sent ' + ago(s.ago) : s.state < 0 ? 'failed ' + ago(s.ago) + ': ' + s.detail : '';
+                }
+                return d;
+            } catch (e) { return null; }
+        }
+        $('nTest').addEventListener('click', async () => {
+            if ($('savebar').classList.contains('show')) return toast('Save your changes first', true);
+            const b = $('nTest');
+            b.disabled = true;
+            try {
+                const r = await fetch('/api/notify/test', { method: 'POST', headers: { 'X-BLLED': '1' } });
+                if (!r.ok) throw new Error(await r.text());
+                toast('Sending a test…');
+                // Poll until it's done (HTTPS can take a few seconds)
+                for (let i = 0; i < 20; i++) {
+                    await new Promise(res => setTimeout(res, 1500));
+                    const d = await notifyStatus();
+                    if (d && !d.busy && !d.queued) break;
+                }
+                const bad = [...document.querySelectorAll('.nstat.bad')];
+                toast(bad.length ? 'Some didn’t go through - see the red notes' : 'Test sent', bad.length > 0);
+            } catch (e) {
+                toast(e.message, true);
+            } finally {
+                b.disabled = false;
+            }
+        });
+        // @end-full-only
 
         // ---- Live strip ----
         const FX = { breathe: 'Breathing', blink: 'Blinking', progress: 'Progress glow', rainbow: 'Rainbow', pulse: 'Filament color', accent: 'Filament accent', heat: 'Heat-up glow' };

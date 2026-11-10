@@ -310,6 +310,21 @@ void saveFileSystem()
     json["quietEnd"] = printerConfig.quietEnd;
     json["quietBrightness"] = printerConfig.quietBrightness;
     json["tz"] = printerConfig.tz;
+#ifndef BLLED_LITE
+    // Notifications
+    json["nDiscord"] = printerConfig.notifyDiscordUrl;
+    json["nNtfyServer"] = printerConfig.notifyNtfyServer;
+    json["nNtfyTopic"] = printerConfig.notifyNtfyTopic;
+    json["nNtfyToken"] = printerConfig.notifyNtfyToken;
+    json["nWebhook"] = printerConfig.notifyWebhookUrl;
+    json["nFinish"] = printerConfig.notifyFinish;
+    json["nFail"] = printerConfig.notifyFail;
+    json["nNeedsYou"] = printerConfig.notifyNeedsYou;
+    json["nStart"] = printerConfig.notifyStart;
+    json["nFirstLayer"] = printerConfig.notifyFirstLayer;
+    json["nProgress"] = printerConfig.notifyProgress;
+    json["nProgressStep"] = printerConfig.notifyProgressStep;
+#endif
 
     File configFile = LittleFS.open(configTmpPath, "w");
     if (!configFile)
@@ -504,6 +519,21 @@ void loadFileSystem()
         printerConfig.quietEnd = constrain((int)(json["quietEnd"] | 7 * 60), 0, 1439);
         printerConfig.quietBrightness = constrain((int)(json["quietBrightness"] | 10), 0, 100);
         strlcpy(printerConfig.tz, json["tz"] | "MST7MDT,M3.2.0,M11.1.0", sizeof(printerConfig.tz));
+#ifndef BLLED_LITE
+        // Notifications
+        strlcpy(printerConfig.notifyDiscordUrl, json["nDiscord"] | "", sizeof(printerConfig.notifyDiscordUrl));
+        strlcpy(printerConfig.notifyNtfyServer, json["nNtfyServer"] | "https://ntfy.sh", sizeof(printerConfig.notifyNtfyServer));
+        strlcpy(printerConfig.notifyNtfyTopic, json["nNtfyTopic"] | "", sizeof(printerConfig.notifyNtfyTopic));
+        strlcpy(printerConfig.notifyNtfyToken, json["nNtfyToken"] | "", sizeof(printerConfig.notifyNtfyToken));
+        strlcpy(printerConfig.notifyWebhookUrl, json["nWebhook"] | "", sizeof(printerConfig.notifyWebhookUrl));
+        printerConfig.notifyFinish = json["nFinish"] | true;
+        printerConfig.notifyFail = json["nFail"] | true;
+        printerConfig.notifyNeedsYou = json["nNeedsYou"] | true;
+        printerConfig.notifyStart = json["nStart"] | false;
+        printerConfig.notifyFirstLayer = json["nFirstLayer"] | false;
+        printerConfig.notifyProgress = json["nProgress"] | false;
+        printerConfig.notifyProgressStep = constrain((int)(json["nProgressStep"] | 25), 5, 50);
+#endif
 
         LogSerial.println(F("[Filesystem] Loaded config"));
         cfgReadRetries = 0;

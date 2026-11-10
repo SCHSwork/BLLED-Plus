@@ -15,6 +15,7 @@ struct HeapBuf
 inline volatile bool mqttReconnectNow = false; // status page asked to reconnect to the printer
 inline volatile bool otaPauseMqtt = false; // self-update needs the memory: drop the printer's TLS connection
 inline volatile bool selfUpdating = false; // downloading an update from GitHub
+inline volatile bool notifyPauseMqtt = false; // sending a notification needs the memory: hold the printer's TLS connection
 inline volatile unsigned long otaLastData = 0;
 inline volatile unsigned long otaBytes = 0, otaTotal = 0; // received so far / expected size
 #define _TYPES
@@ -230,6 +231,22 @@ extern "C"
         int quietEnd = 7 * 60;
         int quietBrightness = 10;       // % during quiet hours, 0 = off
         char tz[48] = "MST7MDT,M3.2.0,M11.1.0"; // POSIX time zone for the clock (US Mountain)
+
+#ifndef BLLED_LITE
+        // Print notifications (notify.h). An empty address / topic means that service is off.
+        char notifyDiscordUrl[200] = "";    // Discord channel webhook
+        char notifyNtfyServer[96] = "https://ntfy.sh";
+        char notifyNtfyTopic[64] = "";
+        char notifyNtfyToken[64] = "";      // access token for a protected topic (optional)
+        char notifyWebhookUrl[200] = "";    // any URL: gets a JSON POST (Home Assistant etc.)
+        bool notifyFinish = true;           // print finished
+        bool notifyFail = true;             // print failed or cancelled
+        bool notifyNeedsYou = true;         // paused / problem the printer needs you for
+        bool notifyStart = false;           // print started
+        bool notifyFirstLayer = false;      // first layer done
+        bool notifyProgress = false;        // every notifyProgressStep %
+        int notifyProgressStep = 25;
+#endif
 
 
     } PrinterConfig;
