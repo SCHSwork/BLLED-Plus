@@ -289,6 +289,18 @@ static int nPostOnce(const char *url, const String &body, const char *contentTyp
     return code;
 }
 
+// A text progress bar: 10 blocks, filled to the percent (UTF-8, shows in Discord, ntfy and most apps)
+static String nBar(int percent)
+{
+    if (percent < 0)
+        return "";
+    int filled = (constrain(percent, 0, 100) + 5) / 10;
+    String b;
+    for (int i = 0; i < 10; i++)
+        b += i < filled ? "\u2588" : "\u2591"; // full block / light shade
+    return b;
+}
+
 // POST, and if a secure connection couldn't be opened while the printer connection was still up,
 // try once more with the printer connection on hold (two secure connections at once can be more
 // memory than the controller has, depending on the server's certificate)
@@ -339,13 +351,13 @@ static bool nSendDiscord(const NotifyMsg &m)
         {
             JsonObject p = e["fields"].add<JsonObject>();
             p["name"] = "Progress";
-            char b[40];
+            char b[48];
             if (m.layer > 0 && m.totalLayers > 0)
-                snprintf(b, sizeof(b), "%d%% (layer %d of %d)", m.percent, m.layer, m.totalLayers);
+                snprintf(b, sizeof(b), " %d%% (layer %d of %d)", m.percent, m.layer, m.totalLayers);
             else
-                snprintf(b, sizeof(b), "%d%%", m.percent);
-            p["value"] = b;
-            p["inline"] = true;
+                snprintf(b, sizeof(b), " %d%%", m.percent);
+            p["value"] = nBar(m.percent) + b;
+            p["inline"] = false; // a whole line, so the bar isn't squeezed
         }
     }
     JsonObject foot = e["footer"].to<JsonObject>();
@@ -560,6 +572,8 @@ static bool nVar(const NCtx &c, const char *name, size_t n, String &out)
     out = "";
     if (is("job"))
         out = c.job[0] ? c.job : "your print";
+    else if (is("bar"))
+        out = nBar(c.percent);
     else if (is("percent"))
         out = c.percent >= 0 ? String(c.percent) : "";
     else if (is("step"))

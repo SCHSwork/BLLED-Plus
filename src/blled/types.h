@@ -26,7 +26,7 @@ inline const char *const notifyDefTitle[NT_COUNT] = {
 inline const char *const notifyDefBody[NT_COUNT] = {
     "{job} started",
     "First layer of {job} is down - a good moment to check it",
-    "{job} is {percent}% done[, about {remaining} left]",
+    "{bar} {percent}%[ - about {remaining} left] - {job}",
     "{job} finished[ in {duration}]",
     "{job} {outcome}[ - printer error {error}]",
     "{reason}[ ({hms})][ - {job}]",
