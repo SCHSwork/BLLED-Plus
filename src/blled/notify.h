@@ -30,6 +30,7 @@
 #include <HTTPClient.h>
 #include "types.h"
 #include "cert_bundle.h"
+#include "mbedtls/error.h"
 
 bool printingState();
 uint8_t hmsModule();
@@ -87,7 +88,7 @@ struct NotifyResult
 {
     int8_t state = 0;
     unsigned long atMs = 0;
-    char detail[72] = "";
+    char detail[96] = "";
 };
 static NotifyResult nResDiscord, nResNtfy, nResWebhook;
 
@@ -168,9 +169,9 @@ static bool nEnoughMemoryForTls()
 
 // Hold the printer connection while sending, if there isn't memory for two secure connections
 static bool nHeld = false;
-static void nMakeRoom()
+static void nMakeRoom(bool force = false)
 {
-    if (nHeld || nEnoughMemoryForTls())
+    if (nHeld || (!force && nEnoughMemoryForTls()))
         return;
     nHeld = true;
     notifyPauseMqtt = true;
@@ -198,7 +199,7 @@ static void nSetResult(NotifyResult &r, bool ok, const char *detail)
 
 // POST a body to a URL (http:// or https://). Returns the HTTP status, or a negative HTTPClient
 // error. err gets a short description when it didn't work.
-static int nPost(const char *url, const String &body, const char *contentType, const char *bearer, char *err, size_t errLen)
+static int nPostOnce(const char *url, const String &body, const char *contentType, const char *bearer, char *err, size_t errLen)
 {
     bool https = strncasecmp(url, "https://", 8) == 0;
     if (!https && strncasecmp(url, "http://", 7) != 0)
@@ -256,6 +257,13 @@ static int nPost(const char *url, const String &body, const char *contentType, c
                     snprintf(err, errLen, "not enough memory for a secure connection (free %u KB)", ESP.getFreeHeap() / 1024);
                 else if (tls == -0x2700)
                     strlcpy(err, "the server's certificate couldn't be checked", errLen);
+                else if (tls < -1)
+                {
+                    // Say which TLS error it was, so it can be looked up
+                    char why[48];
+                    mbedtls_strerror(tls, why, sizeof(why));
+                    snprintf(err, errLen, "secure connection failed (-0x%04X %s; %u KB free)", -tls, why, ESP.getMaxAllocHeap() / 1024);
+                }
                 else
                     snprintf(err, errLen, "%s", HTTPClient::errorToString(code).c_str());
             }
@@ -277,6 +285,22 @@ static int nPost(const char *url, const String &body, const char *contentType, c
     {
         plain->stop();
         delete plain;
+    }
+    return code;
+}
+
+// POST, and if a secure connection couldn't be opened while the printer connection was still up,
+// try once more with the printer connection on hold (two secure connections at once can be more
+// memory than the controller has, depending on the server's certificate)
+static int nPost(const char *url, const String &body, const char *contentType, const char *bearer, char *err, size_t errLen)
+{
+    int code = nPostOnce(url, body, contentType, bearer, err, errLen);
+    if (code == HTTPC_ERROR_CONNECTION_REFUSED && !nHeld && strncasecmp(url, "https://", 8) == 0)
+    {
+        LogSerial.printf("[Notify] %s - trying again with the printer connection on hold\n", err);
+        nMakeRoom(true);
+        err[0] = 0;
+        code = nPostOnce(url, body, contentType, bearer, err, errLen);
     }
     return code;
 }
@@ -328,7 +352,7 @@ static bool nSendDiscord(const NotifyMsg &m)
     foot["text"] = globalVariables.Host;
     String body;
     serializeJson(d, body);
-    char err[72] = "";
+    char err[96] = "";
     int code = nPost(printerConfig.notifyDiscordUrl, body, "application/json", nullptr, err, sizeof(err));
     bool ok = code >= 200 && code < 300;
     nSetResult(nResDiscord, ok, ok ? "sent" : err);
@@ -365,7 +389,7 @@ static bool nSendNtfy(const NotifyMsg &m)
     d["tags"].add(tag);
     String body;
     serializeJson(d, body);
-    char err[72] = "";
+    char err[96] = "";
     int code = nPost(url.c_str(), body, "application/json", printerConfig.notifyNtfyToken, err, sizeof(err));
     bool ok = code >= 200 && code < 300;
     nSetResult(nResNtfy, ok, ok ? "sent" : err);
@@ -402,7 +426,7 @@ static bool nSendWebhook(const NotifyMsg &m)
     d["url"] = nStatusUrl();
     String body;
     serializeJson(d, body);
-    char err[72] = "";
+    char err[96] = "";
     int code = nPost(printerConfig.notifyWebhookUrl, body, "application/json", nullptr, err, sizeof(err));
     bool ok = code >= 200 && code < 300;
     nSetResult(nResWebhook, ok, ok ? "sent" : err);
