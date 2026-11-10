@@ -11,12 +11,17 @@ Two lists go in the header:
 
 Usage: tools/gen_cert_bundle.py [older-cacert.pem]
 The optional older cacert.pem adds roots that left Mozilla's list but still anchor cross-signed
-chains GitHub's servers have used (DigiCert G1, Comodo AAA)."""
+chains GitHub's servers have used (DigiCert G1, Comodo AAA), plus GlobalSign Root CA for Google
+Trust Services chains (Discord)."""
 import sys, certifi
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-LEGACY = ('DigiCert Global Root CA', 'DigiCert High Assurance EV Root CA', 'AAA Certificate Services')
+# GlobalSign Root CA (R1): left Mozilla's list, but Google Trust Services chains (Discord and every
+# other site behind Google's certificates) still send GTS Root R1/R4 cross-signed by it, and the
+# controller only checks the top certificate the server sends
+LEGACY = ('DigiCert Global Root CA', 'DigiCert High Assurance EV Root CA', 'AAA Certificate Services',
+          'CN=GlobalSign Root CA,OU=Root CA')
 GITHUB = ('USERTrust ECC Certification Authority', 'USERTrust RSA Certification Authority',
           'AAA Certificate Services', 'Sectigo Public Server Authentication Root E46',
           'Sectigo Public Server Authentication Root R46', 'DigiCert Global Root CA',
