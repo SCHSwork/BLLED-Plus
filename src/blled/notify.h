@@ -164,9 +164,15 @@ static bool notifyRequeueFront(const NotifyMsg &m)
 //  Sending
 // ---------------------------------------------------------------------------
 
+// Link in each notification: the controller's name on the network (blled.local) rather than its
+// IP address, which can change and doesn't open on every phone
 static String nStatusUrl()
 {
-    return "http://" + WiFi.localIP().toString() + "/status";
+    String host = globalVariables.Host;
+    host.toLowerCase();
+    if (host.length() == 0)
+        host = "blled";
+    return "http://" + host + ".local/status";
 }
 
 static void nFmtHms(char *b, size_t n, uint64_t c)
