@@ -109,7 +109,7 @@ The **Activity log** on the status page shows what the controller has been doing
 - **Preview** any color or effect on the real strip before saving.
 
 **Print notifications** (full edition)
-- Sends to a **Discord** channel (webhook), the **ntfy** phone app (ntfy.sh or your own server), and/or any **webhook** as JSON (Home Assistant, Node-RED). Set them up on the **Notify** tab and use **Send a test notification**.
+- Sends to a **Discord** channel (webhook), the **ntfy** phone app (ntfy.sh or your own server), and/or any **webhook** as JSON (Home Assistant, Node-RED). Set them up on the **Notify** tab and use the **Try it** buttons to send a made-up example of each kind (to all services or just one).
 - You pick what's worth a ping: print finished (with how long it took), failed or cancelled, the printer needs you (runout, clog, first-layer or spaghetti problem, AMS problem, a pause in the file, serious errors; not pauses you make), print started, first layer done, and progress every 10 / 20 / 25 / 50 %.
 - Each notification links to the controller's status page. If there isn't enough memory for the printer connection and a secure web connection at the same time, the printer connection is held for the few seconds the send takes.
 - The webhook gets `event` (`finished`, `failed`, `needs_you`, `started`, `first_layer`, `progress`, `test`), `title`, `message`, `job`, `percent`, `layer`, `totalLayers`, `remainingMins`, `printError`, `hms` and `url`.

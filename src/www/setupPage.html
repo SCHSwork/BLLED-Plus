@@ -319,8 +319,27 @@
                         <button type="button" class="ghost" data-clear="nWebhook" hidden>Remove</button>
                     </div>
                 </div>
-                <div class="field">
-                    <button type="button" class="ghost" id="nTest">Send a test notification</button>
+            </div>
+            <div class="group">
+                <h2>Try it</h2>
+                <p class="hint">Sends a made-up example (marked [Test]) so you can see how each one looks. Save your changes first.</p>
+                <div class="row">
+                    <label for="nTestTo" class="txt"><b>Send to</b></label>
+                    <select id="nTestTo" style="width:auto;margin:0">
+                        <option value="all">All that are set up</option>
+                        <option value="discord">Discord only</option>
+                        <option value="ntfy">ntfy only</option>
+                        <option value="webhook">Webhook only</option>
+                    </select>
+                </div>
+                <div class="field ntests">
+                    <button type="button" class="ghost" data-ntest="test">Test message</button>
+                    <button type="button" class="ghost" data-ntest="finished">Finished</button>
+                    <button type="button" class="ghost" data-ntest="failed">Failed</button>
+                    <button type="button" class="ghost" data-ntest="needs_you">Needs you</button>
+                    <button type="button" class="ghost" data-ntest="started">Started</button>
+                    <button type="button" class="ghost" data-ntest="first_layer">First layer</button>
+                    <button type="button" class="ghost" data-ntest="progress">Progress</button>
                 </div>
             </div>
             <div class="group">
@@ -789,6 +808,8 @@
 
         // ---- Notifications ----
         form.addEventListener('input', e => { if (e.target.id === 'nNtfyTopic') updateVisibility(); });
+        // Picking where a test goes isn't a setting: don't show "Unsaved changes" for it
+        for (const ev of ['input', 'change']) $('nTestTo').addEventListener(ev, e => e.stopPropagation());
         form.addEventListener('click', e => {
             const id = e.target.dataset && e.target.dataset.clear;
             if (!id) return;
@@ -813,12 +834,15 @@
                 return d;
             } catch (e) { return null; }
         }
-        $('nTest').addEventListener('click', async () => {
+        form.addEventListener('click', async e => {
+            const b = e.target.closest('[data-ntest]');
+            if (!b) return;
             if ($('savebar').classList.contains('show')) return toast('Save your changes first', true);
-            const b = $('nTest');
-            b.disabled = true;
+            const all = [...form.querySelectorAll('[data-ntest]')];
+            all.forEach(x => x.disabled = true);
             try {
-                const r = await fetch('/api/notify/test', { method: 'POST', headers: { 'X-BLLED': '1' } });
+                const body = new URLSearchParams({ event: b.dataset.ntest, service: $('nTestTo').value });
+                const r = await fetch('/api/notify/test', { method: 'POST', headers: { 'X-BLLED': '1', 'Content-Type': 'application/x-www-form-urlencoded' }, body });
                 if (!r.ok) throw new Error(await r.text());
                 toast('Sending a test…');
                 // Poll until it's done (HTTPS can take a few seconds)
@@ -827,12 +851,13 @@
                     const d = await notifyStatus();
                     if (d && !d.busy && !d.queued) break;
                 }
-                const bad = [...document.querySelectorAll('.nstat.bad')];
-                toast(bad.length ? 'Some didn’t go through - see the red notes' : 'Test sent', bad.length > 0);
+                const to = $('nTestTo').value;
+                const bad = to === 'all' ? [...document.querySelectorAll('.nstat.bad')] : [...document.querySelectorAll('#nStat-' + to + '.bad')];
+                toast(bad.length ? 'Some didn’t go through - see the red notes' : 'Sent', bad.length > 0);
             } catch (e) {
                 toast(e.message, true);
             } finally {
-                b.disabled = false;
+                all.forEach(x => x.disabled = false);
             }
         });
         // @end-full-only

@@ -235,6 +235,8 @@ body {
 .secret { display: flex; gap: 8px; align-items: flex-start; }
 .secret input { flex: 1; min-width: 0; }
 .secret button { width: auto; flex: none; padding: 10px 12px; margin: 0; }
+.ntests { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.ntests button { margin: 0; padding: 10px 12px; }
 .nstat { font-weight: 400; font-size: 12px; margin-left: 6px; }
 .nstat.ok { color: var(--good); }
 .nstat.bad { color: var(--bad); }

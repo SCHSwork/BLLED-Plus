@@ -1161,9 +1161,10 @@ void setupWebserver()
             return request->requestAuthentication();
         if (!fromOwnPage(request))
             return refuseForeign(request);
-        if (!notifyConfigured())
-            return request->send(409, "text/plain", "Set up Discord, ntfy or a webhook and save first");
-        notifyTest();
+        String event = request->hasParam("event", true) ? request->getParam("event", true)->value() : String("test");
+        String service = request->hasParam("service", true) ? request->getParam("service", true)->value() : String("all");
+        if (!notifyTest(event, service))
+            return request->send(409, "text/plain", service == "all" ? "Set up Discord, ntfy or a webhook and save first" : "That one isn't set up yet - fill it in and save first");
         request->send(200, "text/plain", "Sending"); });
 #endif
     webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)

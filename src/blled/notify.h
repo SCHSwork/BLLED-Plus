@@ -70,6 +70,7 @@ struct NotifyMsg
     int percent, layer, totalLayers, remainingMins;
     uint32_t printError;
     uint64_t hmsCode;
+    uint8_t only; // test from the settings page: 1 Discord, 2 ntfy, 4 webhook (0 = all)
 };
 
 #define NOTIFY_QUEUE 4
@@ -92,6 +93,21 @@ bool notifyConfigured()
     return printerConfig.notifyDiscordUrl[0] || printerConfig.notifyNtfyTopic[0] || printerConfig.notifyWebhookUrl[0];
 }
 
+static void notifyPush(const NotifyMsg &m)
+{
+    portENTER_CRITICAL(&nMux);
+    if (nCount == NOTIFY_QUEUE)
+    {
+        // Full (the internet has been down a while): drop the oldest
+        nHead = (nHead + 1) % NOTIFY_QUEUE;
+        nCount--;
+    }
+    nQueue[(nHead + nCount) % NOTIFY_QUEUE] = m;
+    nCount++;
+    portEXIT_CRITICAL(&nMux);
+    LogSerial.printf("[Notify] %s: %s\n", m.title, m.body);
+}
+
 static void notifyQueue(uint8_t event, const char *title, const char *body)
 {
     NotifyMsg m = {};
@@ -111,18 +127,7 @@ static void notifyQueue(uint8_t event, const char *title, const char *body)
         m.percent = m.layer = m.totalLayers = m.remainingMins = -1;
         m.printError = 0;
     }
-
-    portENTER_CRITICAL(&nMux);
-    if (nCount == NOTIFY_QUEUE)
-    {
-        // Full (the internet has been down a while): drop the oldest
-        nHead = (nHead + 1) % NOTIFY_QUEUE;
-        nCount--;
-    }
-    nQueue[(nHead + nCount) % NOTIFY_QUEUE] = m;
-    nCount++;
-    portEXIT_CRITICAL(&nMux);
-    LogSerial.printf("[Notify] %s: %s\n", m.title, m.body);
+    notifyPush(m);
 }
 
 static bool notifyPop(NotifyMsg &out)
@@ -424,6 +429,8 @@ static void notifyTask(void *)
     while (notifyPop(m))
     {
         bool allOk = true;
+        uint8_t skip = m.only ? (uint8_t)(~m.only & 7) : 0; // a test for just one service
+        doneMask |= skip;
         if (printerConfig.notifyDiscordUrl[0] && !(doneMask & 1))
         {
             if (nSendDiscord(m)) doneMask |= 1;
@@ -521,12 +528,76 @@ static const char *nNeedsYouReason()
     return "";
 }
 
-void notifyTest()
+// Test from the settings page: a made-up example of one kind of notification, to all services
+// or just one ("discord", "ntfy", "webhook"). Returns false if that service isn't set up.
+bool notifyTest(const String &event, const String &service)
 {
-    char b[120];
-    snprintf(b, sizeof(b), "Test from %s (BLLED Plus %s). If you can read this, notifications work.", globalVariables.Host.c_str(), STRVERSION);
-    notifyQueue(NE_TEST, "BLLED Plus test", b);
+    uint8_t only = service == "discord" ? 1 : service == "ntfy" ? 2 : service == "webhook" ? 4 : 0;
+    uint8_t have = (printerConfig.notifyDiscordUrl[0] ? 1 : 0) | (printerConfig.notifyNtfyTopic[0] ? 2 : 0) | (printerConfig.notifyWebhookUrl[0] ? 4 : 0);
+    if (!(only ? (have & only) : have))
+        return false;
+
+    NotifyMsg m = {};
+    m.only = only;
+    m.percent = m.layer = m.totalLayers = m.remainingMins = -1;
+    strlcpy(m.job, "Test print", sizeof(m.job));
+    const char *title, *body;
+    if (event == "finished")
+    {
+        m.event = NE_FINISHED;
+        title = "[Test] Print finished";
+        body = "Test print finished in 2h 34m";
+        m.percent = 100;
+    }
+    else if (event == "failed")
+    {
+        m.event = NE_FAILED;
+        title = "[Test] Print failed";
+        body = "Test print stopped - printer error 0300_8003 (details on the status page)";
+        m.printError = 0x03008003;
+        m.percent = 37;
+    }
+    else if (event == "needs_you")
+    {
+        m.event = NE_NEEDS_YOU;
+        title = "[Test] Printer needs you";
+        body = "Filament ran out - Test print";
+        m.percent = 61, m.layer = 146, m.totalLayers = 240, m.remainingMins = 58;
+    }
+    else if (event == "started")
+    {
+        m.event = NE_STARTED;
+        title = "[Test] Print started";
+        body = "Test print started";
+    }
+    else if (event == "first_layer")
+    {
+        m.event = NE_FIRST_LAYER;
+        title = "[Test] First layer done";
+        body = "First layer of Test print is down - a good moment to check it";
+        m.percent = 2, m.layer = 2, m.totalLayers = 240, m.remainingMins = 150;
+    }
+    else if (event == "progress")
+    {
+        m.event = NE_PROGRESS;
+        title = "[Test] Print 50% done";
+        body = "Test print is 50% done, about 1h 12m left";
+        m.percent = 50, m.layer = 120, m.totalLayers = 240, m.remainingMins = 72;
+    }
+    else
+    {
+        m.event = NE_TEST;
+        m.job[0] = 0;
+        title = "BLLED Plus test";
+        static char b[120];
+        snprintf(b, sizeof(b), "Test from %s (BLLED Plus %s). If you can read this, notifications work.", globalVariables.Host.c_str(), STRVERSION);
+        body = b;
+    }
+    strlcpy(m.title, title, sizeof(m.title));
+    strlcpy(m.body, body, sizeof(m.body));
+    notifyPush(m);
     notifyKick();
+    return true;
 }
 
 void notifyLoop()
