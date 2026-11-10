@@ -276,6 +276,19 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["nFirstLayer"] = printerConfig.notifyFirstLayer;
     doc["nProgress"] = printerConfig.notifyProgress;
     doc["nProgressStep"] = printerConfig.notifyProgressStep;
+    {
+        // Wording: what's set (empty = default) and the defaults, for the boxes' placeholders
+        JsonObject tpl = doc["nTpl"].to<JsonObject>();
+        for (int i = 0; i < NT_COUNT; i++)
+        {
+            JsonArray a = tpl[notifyTplKey[i]].to<JsonArray>();
+            a.add(printerConfig.notifyTitle[i]);
+            a.add(printerConfig.notifyBody[i]);
+            a.add(notifyDefTitle[i]);
+            a.add(notifyDefBody[i]);
+        }
+    }
+    doc["nRules"] = printerConfig.notifyRules;
 #endif
 
     String jsonString;
@@ -502,6 +515,20 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
         printerConfig.notifyFirstLayer = request->hasParam("nFirstLayer", true);
         printerConfig.notifyProgress = request->hasParam("nProgress", true);
         printerConfig.notifyProgressStep = constrain(getSafeParamInt(request, "nProgressStep", printerConfig.notifyProgressStep), 5, 50);
+        for (int i = 0; i < NT_COUNT; i++)
+        {
+            String k = String("nT_") + notifyTplKey[i], v = getSafeParamValue(request, k.c_str());
+            v.trim();
+            strlcpy(printerConfig.notifyTitle[i], v.c_str(), sizeof(printerConfig.notifyTitle[i]));
+            k = String("nB_") + notifyTplKey[i];
+            v = getSafeParamValue(request, k.c_str());
+            v.trim();
+            strlcpy(printerConfig.notifyBody[i], v.c_str(), sizeof(printerConfig.notifyBody[i]));
+        }
+        String rules = getSafeParamValue(request, "nRules");
+        rules.replace("\r", "");
+        rules.trim();
+        printerConfig.notifyRules = rules.substring(0, 500);
     }
 #endif
 

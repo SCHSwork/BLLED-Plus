@@ -34,6 +34,10 @@ static void keepNvsCopy()
     File f = LittleFS.open(configPath, "r");
     size_t n = f ? f.size() : 0;
     HeapBuf buf(n ? n : 1);
+#ifndef BLLED_LITE // long notification wording can make the settings bigger than the spare copy holds
+    if (f && n > 6000)
+        LogSerial.printf("[Filesystem] Settings are %u bytes - too big for the spare copy (6000), so it wasn't updated\n", (unsigned)n);
+#endif
     if (f && n > 10 && n <= 6000 && buf.p && f.read(buf.p, n) == n)
     {
         Preferences p;
@@ -324,6 +328,18 @@ void saveFileSystem()
     json["nFirstLayer"] = printerConfig.notifyFirstLayer;
     json["nProgress"] = printerConfig.notifyProgress;
     json["nProgressStep"] = printerConfig.notifyProgressStep;
+    // Only the wording that was changed (keeps the settings file small)
+    {
+        JsonObject tpl = json["nTpl"].to<JsonObject>();
+        for (int i = 0; i < NT_COUNT; i++)
+            if (printerConfig.notifyTitle[i][0] || printerConfig.notifyBody[i][0])
+            {
+                JsonArray a = tpl[notifyTplKey[i]].to<JsonArray>();
+                a.add(printerConfig.notifyTitle[i]);
+                a.add(printerConfig.notifyBody[i]);
+            }
+    }
+    json["nRules"] = printerConfig.notifyRules;
 #endif
 
     File configFile = LittleFS.open(configTmpPath, "w");
@@ -533,6 +549,13 @@ void loadFileSystem()
         printerConfig.notifyFirstLayer = json["nFirstLayer"] | false;
         printerConfig.notifyProgress = json["nProgress"] | false;
         printerConfig.notifyProgressStep = constrain((int)(json["nProgressStep"] | 25), 5, 50);
+        for (int i = 0; i < NT_COUNT; i++)
+        {
+            JsonArrayConst a = json["nTpl"][notifyTplKey[i]];
+            strlcpy(printerConfig.notifyTitle[i], a[0] | "", sizeof(printerConfig.notifyTitle[i]));
+            strlcpy(printerConfig.notifyBody[i], a[1] | "", sizeof(printerConfig.notifyBody[i]));
+        }
+        printerConfig.notifyRules = json["nRules"] | "";
 #endif
 
         LogSerial.println(F("[Filesystem] Loaded config"));

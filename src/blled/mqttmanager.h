@@ -956,9 +956,17 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
         normalizedIgnoreList.replace("HMS_", "");
         normalizedIgnoreList = "," + normalizedIgnoreList + ",";
 
+#ifndef BLLED_LITE
+        printerVariables.hmsCount = 0;
+#endif
         for (const auto &hms : messageobject["print"]["hms"].as<JsonArray>())
         {
             uint64_t code = ((uint64_t)hms["attr"] << 32) + (uint64_t)hms["code"];
+#ifndef BLLED_LITE
+            // All of them, ignored for the lights or not: a code alert can still be about it
+            if (printerVariables.hmsCount < 8)
+                printerVariables.hmsList[printerVariables.hmsCount++] = code;
+#endif
 
             char strHMScode[24];
             snprintf(strHMScode, sizeof(strHMScode), "%04X_%04X_%04X_%04X",

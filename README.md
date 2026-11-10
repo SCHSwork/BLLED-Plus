@@ -112,7 +112,9 @@ The **Activity log** on the status page shows what the controller has been doing
 - Sends to a **Discord** channel (webhook), the **ntfy** phone app (ntfy.sh or your own server), and/or any **webhook** as JSON (Home Assistant, Node-RED). Set them up on the **Notify** tab and use the **Try it** buttons to send a made-up example of each kind (to all services or just one).
 - You pick what's worth a ping: print finished (with how long it took), failed or cancelled, the printer needs you (runout, clog, first-layer or spaghetti problem, AMS problem, a pause in the file, serious errors; not pauses you make), print started, first layer done, and progress every 10 / 20 / 25 / 50 %.
 - Each notification links to the controller's status page at blled.local (or whatever you named the controller). If there isn't enough memory for the printer connection and a secure web connection at the same time, the printer connection is held for the few seconds the send takes.
-- The webhook gets `event` (`finished`, `failed`, `needs_you`, `started`, `first_layer`, `progress`, `test`), `title`, `message`, `job`, `percent`, `layer`, `totalLayers`, `remainingMins`, `printError`, `hms` and `url`.
+- **Your own wording**: every kind of notification has a title and message you can rewrite, with fill-ins like `{job}`, `{percent}`, `{remaining}`, `{duration}`, `{reason}`, `{hms}` and `{printer}`. Text in `[ ]` is left out when a fill-in inside it isn't known.
+- **Alerts for printer codes**: lines like `HMS_0700_* = AMS needs a look ({hms})` or `0300_8003 = Spaghetti on {job}` send your own message when that HMS code or print error shows up, even codes that don't pause the print. `off` silences a code (including its "needs you" message).
+- The webhook gets `event` (`finished`, `failed`, `needs_you`, `started`, `first_layer`, `progress`, `alert`, `test`), `title`, `message`, `job`, `percent`, `layer`, `totalLayers`, `remainingMins`, `printError`, `hms` and `url`.
 
 **H2 series**
 - Follows the active nozzle and the spool feeding it, including the external spools.

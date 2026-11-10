@@ -43,7 +43,9 @@ enum NotifyEvent : uint8_t
     NE_FINISHED,
     NE_FAILED,
     NE_NEEDS_YOU,
+    NE_ALERT, // a code alert (rule on the Notify tab)
 };
+// Message templates (types.h) go NE_STARTED .. NE_ALERT: template = event - 1
 
 static const char *notifyEventName(uint8_t e)
 {
@@ -56,6 +58,7 @@ static const char *notifyEventName(uint8_t e)
     case NE_FINISHED: return "finished";
     case NE_FAILED: return "failed";
     case NE_NEEDS_YOU: return "needs_you";
+    case NE_ALERT: return "alert";
     }
     return "unknown";
 }
@@ -106,28 +109,6 @@ static void notifyPush(const NotifyMsg &m)
     nCount++;
     portEXIT_CRITICAL(&nMux);
     LogSerial.printf("[Notify] %s: %s\n", m.title, m.body);
-}
-
-static void notifyQueue(uint8_t event, const char *title, const char *body)
-{
-    NotifyMsg m = {};
-    m.event = event;
-    strlcpy(m.title, title, sizeof(m.title));
-    strlcpy(m.body, body, sizeof(m.body));
-    strlcpy(m.job, printerVariables.jobName, sizeof(m.job));
-    m.percent = printerVariables.percent;
-    m.layer = printerVariables.layer;
-    m.totalLayers = printerVariables.totalLayers;
-    m.remainingMins = printerVariables.remainingMins;
-    m.printError = printerVariables.printError;
-    m.hmsCode = printerVariables.hmsstate ? printerVariables.parsedHMScode : 0;
-    if (event == NE_STARTED || event == NE_TEST)
-    {
-        // Progress still holds the previous print's numbers at this point
-        m.percent = m.layer = m.totalLayers = m.remainingMins = -1;
-        m.printError = 0;
-    }
-    notifyPush(m);
 }
 
 static bool notifyPop(NotifyMsg &out)
@@ -307,6 +288,7 @@ static uint32_t nDiscordColor(uint8_t e)
     case NE_FINISHED: return 0x2ECC71;
     case NE_FAILED: return 0xE74C3C;
     case NE_NEEDS_YOU: return 0xFF7A00;
+    case NE_ALERT: return 0xF1C40F;
     case NE_STARTED: return 0x3498DB;
     case NE_FIRST_LAYER: return 0x1ABC9C;
     case NE_PROGRESS: return 0x5865F2;
@@ -373,6 +355,7 @@ static bool nSendNtfy(const NotifyMsg &m)
     case NE_FINISHED: tag = "white_check_mark"; prio = 4; break;
     case NE_FAILED: tag = "x"; prio = 4; break;
     case NE_NEEDS_YOU: tag = "warning"; prio = 5; break;
+    case NE_ALERT: tag = "rotating_light"; prio = 4; break;
     case NE_STARTED: tag = "arrow_forward"; break;
     case NE_FIRST_LAYER: tag = "mag"; break;
     case NE_PROGRESS: tag = "hourglass_flowing_sand"; prio = 2; break;
@@ -513,6 +496,353 @@ static void nDuration(char *b, size_t n, unsigned long ms)
         snprintf(b, n, "%lum", mins);
 }
 
+// ---------------------------------------------------------------------------
+//  Message templates: each kind of notification has a title and a message that people can
+//  rewrite on the Notify tab. {name} fills in a value; [ ... ] is only shown when every value
+//  inside it is known (e.g. "[ in {duration}]" disappears when the start wasn't seen).
+// ---------------------------------------------------------------------------
+
+// Everything a message can mention. Unknown numbers are -1 / 0 and fill in as nothing.
+struct NCtx
+{
+    char job[64] = "";
+    int percent = -1, step = -1, layer = -1, totalLayers = -1, remainingMins = -1;
+    long durationMs = -1;
+    const char *reason = "";
+    const char *outcome = "";
+    uint32_t printError = 0;
+    uint64_t hms = 0;
+    bool printing = false; // {job} only means something during / right after a print
+};
+
+static NCtx nCtxNow()
+{
+    NCtx c;
+    strlcpy(c.job, printerVariables.jobName, sizeof(c.job));
+    c.percent = printerVariables.percent;
+    c.layer = printerVariables.layer;
+    c.totalLayers = printerVariables.totalLayers;
+    c.remainingMins = printerVariables.remainingMins;
+    c.printError = printerVariables.printError;
+    c.hms = printerVariables.hmsstate ? printerVariables.parsedHMScode : 0;
+    return c;
+}
+
+// Value of {name}; false if there's no such name (then it's left in the text as typed)
+static bool nVar(const NCtx &c, const char *name, size_t n, String &out)
+{
+    char b[40];
+    auto is = [&](const char *k) { return strlen(k) == n && strncasecmp(name, k, n) == 0; };
+    out = "";
+    if (is("job"))
+        out = c.job[0] ? c.job : "your print";
+    else if (is("percent"))
+        out = c.percent >= 0 ? String(c.percent) : "";
+    else if (is("step"))
+        out = c.step >= 0 ? String(c.step) : (c.percent >= 0 ? String(c.percent) : "");
+    else if (is("layer"))
+        out = c.layer > 0 ? String(c.layer) : "";
+    else if (is("total_layers"))
+        out = c.totalLayers > 0 ? String(c.totalLayers) : "";
+    else if (is("remaining"))
+    {
+        if (c.remainingMins >= 0)
+        {
+            nDuration(b, sizeof(b), (unsigned long)c.remainingMins * 60000UL);
+            out = b;
+        }
+    }
+    else if (is("duration"))
+    {
+        if (c.durationMs >= 0)
+        {
+            nDuration(b, sizeof(b), (unsigned long)c.durationMs);
+            out = b;
+        }
+    }
+    else if (is("reason"))
+        out = c.reason;
+    else if (is("outcome"))
+        out = c.outcome;
+    else if (is("error"))
+    {
+        if (c.printError)
+        {
+            snprintf(b, sizeof(b), "%04X_%04X", (unsigned)(c.printError >> 16), (unsigned)(c.printError & 0xFFFF));
+            out = b;
+        }
+    }
+    else if (is("hms"))
+    {
+        if (c.hms)
+        {
+            nFmtHms(b, sizeof(b), c.hms);
+            out = b;
+        }
+    }
+    else if (is("printer"))
+        out = globalVariables.Host;
+    else if (is("time"))
+    {
+        time_t now = time(nullptr);
+        if (now > 1700000000)
+        {
+            struct tm t;
+            localtime_r(&now, &t);
+            snprintf(b, sizeof(b), "%02d:%02d", t.tm_hour, t.tm_min);
+            out = b;
+        }
+    }
+    else
+        return false;
+    return true;
+}
+
+// Fill in a template. Returns how much was written.
+static String nRender(const char *tpl, const NCtx &c)
+{
+    String out, seg;
+    bool inOpt = false, segOk = true;
+    for (const char *p = tpl; *p; p++)
+    {
+        String &dst = inOpt ? seg : out;
+        if (*p == '[' && !inOpt)
+        {
+            inOpt = true;
+            seg = "";
+            segOk = true;
+            continue;
+        }
+        if (*p == ']' && inOpt)
+        {
+            inOpt = false;
+            if (segOk)
+                out += seg;
+            continue;
+        }
+        if (*p == '{')
+        {
+            const char *e = strchr(p, '}');
+            String v;
+            if (e && e - p <= 20 && nVar(c, p + 1, e - p - 1, v))
+            {
+                if (!v.length())
+                    segOk = false;
+                dst += v;
+                p = e;
+                continue;
+            }
+        }
+        dst += *p;
+    }
+    if (inOpt && segOk)
+        out += "[" + seg; // no closing bracket: show it as typed
+    return out;
+}
+
+// Make a notification of one kind from its template (the person's own, or the default)
+static void nEmit(uint8_t event, const NCtx &c, uint8_t only = 0, bool test = false)
+{
+    int t = event - 1;
+    if (t < 0 || t >= NT_COUNT)
+        return;
+    const char *ti = printerConfig.notifyTitle[t][0] ? printerConfig.notifyTitle[t] : notifyDefTitle[t];
+    const char *bo = printerConfig.notifyBody[t][0] ? printerConfig.notifyBody[t] : notifyDefBody[t];
+    NotifyMsg m = {};
+    m.event = event;
+    m.only = only;
+    String title = nRender(ti, c), body = nRender(bo, c);
+    if (test)
+        title = "[Test] " + title;
+    strlcpy(m.title, title.c_str(), sizeof(m.title));
+    strlcpy(m.body, body.c_str(), sizeof(m.body));
+    strlcpy(m.job, c.job, sizeof(m.job));
+    m.percent = c.percent;
+    m.layer = c.layer;
+    m.totalLayers = c.totalLayers;
+    m.remainingMins = c.remainingMins;
+    m.printError = c.printError;
+    m.hmsCode = c.hms;
+    notifyPush(m);
+}
+
+// ---------------------------------------------------------------------------
+//  Code alerts: "code = message" lines on the Notify tab. A code is an HMS code
+//  (HMS_0300_1200_0002_0001) or a print error (0300_8003); a * at the end matches every code
+//  that starts the same way. "off" means never notify about that code.
+// ---------------------------------------------------------------------------
+
+// Normalize a code or pattern: upper case, '_' between groups, no "HMS" prefix
+static String nNormCode(String s, bool &hmsOnly)
+{
+    s.trim();
+    s.toUpperCase();
+    s.replace("-", "_");
+    s.replace(" ", "");
+    hmsOnly = s.startsWith("HMS");
+    if (hmsOnly)
+    {
+        s.remove(0, 3);
+        while (s.startsWith("_"))
+            s.remove(0, 1);
+    }
+    return s;
+}
+
+// Find the rule for a code. kind: true = HMS code, false = print error.
+// Returns true if a rule matched; msg gets its message ("" when it's "off").
+static bool nRuleFor(const char *code, bool isHms, String &msg)
+{
+    const String &rules = printerConfig.notifyRules;
+    int pos = 0, len = rules.length();
+    while (pos < len)
+    {
+        int nl = rules.indexOf('\n', pos);
+        if (nl < 0)
+            nl = len;
+        String line = rules.substring(pos, nl);
+        pos = nl + 1;
+        line.trim();
+        if (!line.length() || line[0] == '#')
+            continue;
+        int eq = line.indexOf('=');
+        if (eq < 0)
+            continue;
+        bool hmsOnly;
+        String pat = nNormCode(line.substring(0, eq), hmsOnly);
+        if (!pat.length() || (hmsOnly && !isHms))
+            continue;
+        bool match;
+        if (pat.endsWith("*"))
+        {
+            pat.remove(pat.length() - 1);
+            match = strncmp(code, pat.c_str(), pat.length()) == 0;
+        }
+        else
+            match = strcmp(code, pat.c_str()) == 0;
+        if (!match)
+            continue;
+        msg = line.substring(eq + 1);
+        msg.trim();
+        String low = msg;
+        low.toLowerCase();
+        if (low == "off" || low == "ignore" || low == "-" || low == "none")
+            msg = "";
+        return true;
+    }
+    return false;
+}
+
+static void nHmsStr(char *b, size_t n, uint64_t c)
+{
+    snprintf(b, n, "%04X_%04X_%04X_%04X", (int)(c >> 48), (int)((c >> 32) & 0xFFFF), (int)((c >> 16) & 0xFFFF), (int)(c & 0xFFFF));
+}
+static void nErrStr(char *b, size_t n, uint32_t e)
+{
+    snprintf(b, n, "%04X_%04X", (unsigned)(e >> 16), (unsigned)(e & 0xFFFF));
+}
+
+// Is there a rule for what the printer is showing right now (its main HMS code or print error)?
+static bool nCurrentHasRule()
+{
+    char b[24];
+    String msg;
+    if (printerVariables.hmsstate)
+    {
+        nHmsStr(b, sizeof(b), printerVariables.parsedHMScode);
+        if (nRuleFor(b, true, msg))
+            return true;
+    }
+    for (int i = 0; i < printerVariables.hmsCount; i++)
+    {
+        nHmsStr(b, sizeof(b), printerVariables.hmsList[i]);
+        if (nRuleFor(b, true, msg))
+            return true;
+    }
+    if (printerVariables.printError)
+    {
+        nErrStr(b, sizeof(b), printerVariables.printError);
+        if (nRuleFor(b, false, msg))
+            return true;
+    }
+    return false;
+}
+
+// Send each matching code once while it's showing; again once it's been gone for 30 s
+#define N_ALERT_SLOTS 10
+static void nAlertsLoop(bool printing)
+{
+    static uint64_t key[N_ALERT_SLOTS];
+    static unsigned long firstMs[N_ALERT_SLOTS], lastMs[N_ALERT_SLOTS];
+    static bool sent[N_ALERT_SLOTS];
+    if (!printerConfig.notifyRules.length())
+        return;
+
+    // What's showing now: every HMS code, plus the print error (marked with the top bits)
+    uint64_t now[9];
+    int n = 0;
+    for (int i = 0; i < printerVariables.hmsCount && n < 8; i++)
+        now[n++] = printerVariables.hmsList[i];
+    if (printerVariables.printError)
+        now[n++] = 0xFFFF000000000000ULL | printerVariables.printError;
+
+    for (int i = 0; i < n; i++)
+    {
+        int slot = -1, freeSlot = -1;
+        for (int s = 0; s < N_ALERT_SLOTS; s++)
+        {
+            if (key[s] == now[i] && firstMs[s])
+                slot = s;
+            else if (!firstMs[s] && freeSlot < 0)
+                freeSlot = s;
+        }
+        if (slot < 0)
+        {
+            if (freeSlot < 0)
+                continue;
+            slot = freeSlot;
+            key[slot] = now[i];
+            firstMs[slot] = millis() ? millis() : 1;
+            sent[slot] = false;
+        }
+        lastMs[slot] = millis();
+        if (sent[slot] || millis() - firstMs[slot] < 3000)
+            continue;
+        sent[slot] = true;
+
+        bool isErr = (now[i] >> 48) == 0xFFFF;
+        char b[24];
+        if (isErr)
+            nErrStr(b, sizeof(b), (uint32_t)now[i]);
+        else
+            nHmsStr(b, sizeof(b), now[i]);
+        String msg;
+        if (!nRuleFor(b, !isErr, msg) || !msg.length())
+            continue; // no rule, or "off"
+        NCtx c = nCtxNow();
+        c.printing = printing;
+        if (!printing)
+        {
+            c.job[0] = 0; // between prints: the last print's numbers don't belong in it
+            c.percent = c.layer = c.totalLayers = c.remainingMins = -1;
+        }
+        if (isErr)
+        {
+            c.printError = (uint32_t)now[i];
+            c.hms = 0;
+        }
+        else
+            c.hms = now[i];
+        String text = nRender(msg.c_str(), c); // the rule's message can use {job}, {hms} ...
+        c.reason = text.c_str();
+        nEmit(NE_ALERT, c);
+    }
+    // Forget codes that have been gone a while
+    for (int s = 0; s < N_ALERT_SLOTS; s++)
+        if (firstMs[s] && millis() - lastMs[s] > 30000)
+            firstMs[s] = 0;
+}
+
 // Why the printer is waiting for you, in words. "" when it isn't.
 static const char *nNeedsYouReason()
 {
@@ -534,8 +864,9 @@ static const char *nNeedsYouReason()
     return "";
 }
 
-// Test from the settings page: a made-up example of one kind of notification, to all services
-// or just one ("discord", "ntfy", "webhook"). Returns false if that service isn't set up.
+// Test from the settings page: a made-up example of one kind of notification (in the person's
+// own wording), to all services or just one ("discord", "ntfy", "webhook"). Returns false if
+// that service isn't set up.
 bool notifyTest(const String &event, const String &service)
 {
     uint8_t only = service == "discord" ? 1 : service == "ntfy" ? 2 : service == "webhook" ? 4 : 0;
@@ -543,65 +874,90 @@ bool notifyTest(const String &event, const String &service)
     if (!(only ? (have & only) : have))
         return false;
 
-    NotifyMsg m = {};
-    m.only = only;
-    m.percent = m.layer = m.totalLayers = m.remainingMins = -1;
-    strlcpy(m.job, "Test print", sizeof(m.job));
-    const char *title, *body;
+    NCtx c;
+    strlcpy(c.job, "Test print", sizeof(c.job));
+    c.printing = true;
+    c.durationMs = (2 * 60 + 34) * 60000L;
+    uint8_t ev = NE_TEST;
+    String alertText;
     if (event == "finished")
-    {
-        m.event = NE_FINISHED;
-        title = "[Test] Print finished";
-        body = "Test print finished in 2h 34m";
-        m.percent = 100;
-    }
+        ev = NE_FINISHED, c.percent = 100;
     else if (event == "failed")
-    {
-        m.event = NE_FAILED;
-        title = "[Test] Print failed";
-        body = "Test print stopped - printer error 0300_8003 (details on the status page)";
-        m.printError = 0x03008003;
-        m.percent = 37;
-    }
+        ev = NE_FAILED, c.outcome = "failed", c.printError = 0x03008003, c.percent = 37;
     else if (event == "needs_you")
-    {
-        m.event = NE_NEEDS_YOU;
-        title = "[Test] Printer needs you";
-        body = "Filament ran out - Test print";
-        m.percent = 61, m.layer = 146, m.totalLayers = 240, m.remainingMins = 58;
-    }
+        ev = NE_NEEDS_YOU, c.reason = "Filament ran out", c.percent = 61, c.layer = 146, c.totalLayers = 240, c.remainingMins = 58;
     else if (event == "started")
-    {
-        m.event = NE_STARTED;
-        title = "[Test] Print started";
-        body = "Test print started";
-    }
+        ev = NE_STARTED;
     else if (event == "first_layer")
-    {
-        m.event = NE_FIRST_LAYER;
-        title = "[Test] First layer done";
-        body = "First layer of Test print is down - a good moment to check it";
-        m.percent = 2, m.layer = 2, m.totalLayers = 240, m.remainingMins = 150;
-    }
+        ev = NE_FIRST_LAYER, c.percent = 2, c.layer = 2, c.totalLayers = 240, c.remainingMins = 150;
     else if (event == "progress")
+        ev = NE_PROGRESS, c.step = 50, c.percent = 50, c.layer = 120, c.totalLayers = 240, c.remainingMins = 72;
+    else if (event == "alert")
     {
-        m.event = NE_PROGRESS;
-        title = "[Test] Print 50% done";
-        body = "Test print is 50% done, about 1h 12m left";
-        m.percent = 50, m.layer = 120, m.totalLayers = 240, m.remainingMins = 72;
+        // The first code rule with a message, as if its code had just come up
+        ev = NE_ALERT;
+        c.hms = 0x0300120000020001ULL;
+        alertText = "Example alert for {hms}";
+        const String &rules = printerConfig.notifyRules;
+        int pos = 0;
+        while (pos < (int)rules.length())
+        {
+            int nl = rules.indexOf('\n', pos);
+            if (nl < 0)
+                nl = rules.length();
+            String line = rules.substring(pos, nl);
+            pos = nl + 1;
+            line.trim();
+            int eq = line.indexOf('=');
+            if (!line.length() || line[0] == '#' || eq < 0)
+                continue;
+            String msg = line.substring(eq + 1), low;
+            msg.trim();
+            low = msg;
+            low.toLowerCase();
+            if (!msg.length() || low == "off" || low == "ignore" || low == "-" || low == "none")
+                continue;
+            bool hmsOnly;
+            String pat = nNormCode(line.substring(0, eq), hmsOnly);
+            pat.replace("*", "");
+            // Make a code that fits the pattern, padding with zeros
+            const char *full = "0000_0000_0000_0000";
+            String code = pat + String(full).substring(min((int)pat.length(), 19));
+            if (!hmsOnly && pat.length() <= 9 && code.length() >= 9 && code[4] == '_' && pat.length() == 9)
+            {
+                c.printError = strtoul((code.substring(0, 4) + code.substring(5, 9)).c_str(), nullptr, 16);
+                c.hms = 0;
+            }
+            else
+            {
+                String hex = code;
+                hex.replace("_", "");
+                c.hms = strtoull(hex.c_str(), nullptr, 16);
+            }
+            alertText = msg;
+            break;
+        }
+    }
+    if (ev == NE_TEST)
+    {
+        NotifyMsg m = {};
+        m.event = NE_TEST;
+        m.only = only;
+        m.percent = m.layer = m.totalLayers = m.remainingMins = -1;
+        strlcpy(m.title, "BLLED Plus test", sizeof(m.title));
+        snprintf(m.body, sizeof(m.body), "Test from %s (BLLED Plus %s). If you can read this, notifications work.", globalVariables.Host.c_str(), STRVERSION);
+        notifyPush(m);
     }
     else
     {
-        m.event = NE_TEST;
-        m.job[0] = 0;
-        title = "BLLED Plus test";
-        static char b[120];
-        snprintf(b, sizeof(b), "Test from %s (BLLED Plus %s). If you can read this, notifications work.", globalVariables.Host.c_str(), STRVERSION);
-        body = b;
+        String text;
+        if (ev == NE_ALERT)
+        {
+            text = nRender(alertText.c_str(), c);
+            c.reason = text.c_str();
+        }
+        nEmit(ev, c, only, true);
     }
-    strlcpy(m.title, title, sizeof(m.title));
-    strlcpy(m.body, body, sizeof(m.body));
-    notifyPush(m);
     notifyKick();
     return true;
 }
@@ -649,7 +1005,6 @@ void notifyLoop()
     bool printing = g == "RUNNING" || g == "PAUSE" || g == "PREPARE";
     int step = constrain(printerConfig.notifyProgressStep, 5, 50);
     int pct = printerVariables.percent;
-    char b[200], d[24];
 
     if (!known)
     {
@@ -682,8 +1037,11 @@ void notifyLoop()
         lowPctSeen = false;
         if (printerConfig.notifyStart)
         {
-            snprintf(b, sizeof(b), "%s started", printerVariables.jobName[0] ? printerVariables.jobName : "A print");
-            notifyQueue(NE_STARTED, "Print started", b);
+            NCtx c = nCtxNow();
+            // Progress still holds the previous print's numbers at this point
+            c.percent = c.layer = c.totalLayers = c.remainingMins = -1;
+            c.printError = 0;
+            nEmit(NE_STARTED, c);
         }
     }
 
@@ -699,11 +1057,7 @@ void notifyLoop()
         {
             firstLayerDone = true;
             if (printerConfig.notifyFirstLayer)
-            {
-                snprintf(b, sizeof(b), "First layer of %s is down - a good moment to check it",
-                         printerVariables.jobName[0] ? printerVariables.jobName : "the print");
-                notifyQueue(NE_FIRST_LAYER, "First layer done", b);
-            }
+                nEmit(NE_FIRST_LAYER, nCtxNow());
         }
         // Progress milestones (not 100: that's "finished")
         if (lowPctSeen && pct >= nextMilestone && nextMilestone < 100)
@@ -712,16 +1066,9 @@ void notifyLoop()
             nextMilestone = reached + step;
             if (printerConfig.notifyProgress && reached > 0 && reached < 100)
             {
-                char t[32];
-                snprintf(t, sizeof(t), "Print %d%% done", reached);
-                if (printerVariables.remainingMins >= 0)
-                {
-                    nDuration(d, sizeof(d), (unsigned long)printerVariables.remainingMins * 60000UL);
-                    snprintf(b, sizeof(b), "%s is %d%% done, about %s left", printerVariables.jobName[0] ? printerVariables.jobName : "The print", pct, d);
-                }
-                else
-                    snprintf(b, sizeof(b), "%s is %d%% done", printerVariables.jobName[0] ? printerVariables.jobName : "The print", pct);
-                notifyQueue(NE_PROGRESS, t, b);
+                NCtx c = nCtxNow();
+                c.step = reached;
+                nEmit(NE_PROGRESS, c);
             }
         }
     }
@@ -730,32 +1077,22 @@ void notifyLoop()
     if (!printing && inJob)
     {
         inJob = false;
-        const char *job = printerVariables.jobName[0] ? printerVariables.jobName : "The print";
+        NCtx c = nCtxNow();
+        c.durationMs = jobStartMs ? (long)(millis() - jobStartMs) : -1;
         if (g == "FINISH")
         {
             if (printerConfig.notifyFinish)
-            {
-                if (jobStartMs)
-                {
-                    nDuration(d, sizeof(d), millis() - jobStartMs);
-                    snprintf(b, sizeof(b), "%s finished in %s", job, d);
-                }
-                else
-                    snprintf(b, sizeof(b), "%s finished", job);
-                notifyQueue(NE_FINISHED, "Print finished", b);
-            }
+                nEmit(NE_FINISHED, c);
         }
         else if (g == "FAILED" || g == "IDLE")
         {
             if (printerConfig.notifyFail)
             {
                 uint32_t pe = printerVariables.printError;
-                if (pe == 0x0300400C || pe == 0)
-                    snprintf(b, sizeof(b), "%s was cancelled%s", job, pe ? "" : " or stopped");
-                else
-                    snprintf(b, sizeof(b), "%s stopped - printer error %04X_%04X (details on the status page)", job,
-                             (unsigned)(pe >> 16), (unsigned)(pe & 0xFFFF));
-                notifyQueue(NE_FAILED, pe == 0x0300400C ? "Print cancelled" : "Print failed", b);
+                c.outcome = pe == 0x0300400C ? "cancelled" : pe ? "failed" : "stopped";
+                if (pe == 0x0300400C)
+                    c.printError = 0; // cancelling isn't an error worth a code
+                nEmit(NE_FAILED, c);
             }
         }
         lastReason = "";
@@ -787,22 +1124,19 @@ void notifyLoop()
     if (reason.length() && !reasonSent && millis() - reasonSinceMs > 5000)
     {
         reasonSent = true;
-        if (printerConfig.notifyNeedsYou)
+        // A code with its own rule gets that rule's message (or none, if it's "off") instead
+        if (printerConfig.notifyNeedsYou && !nCurrentHasRule())
         {
-            char h[32] = "";
-            if (printerVariables.hmsstate)
-            {
-                char c[32];
-                nFmtHms(c, sizeof(c), printerVariables.parsedHMScode);
-                snprintf(h, sizeof(h), " (%s)", c);
-            }
-            if (printerVariables.jobName[0] && printing)
-                snprintf(b, sizeof(b), "%s%s - %s", reason.c_str(), h, printerVariables.jobName);
-            else
-                snprintf(b, sizeof(b), "%s%s", reason.c_str(), h);
-            notifyQueue(NE_NEEDS_YOU, "Printer needs you", b);
+            NCtx c = nCtxNow();
+            c.printing = printing;
+            if (!printing)
+                c.job[0] = 0;
+            c.reason = reason.c_str();
+            nEmit(NE_NEEDS_YOU, c);
         }
     }
+
+    nAlertsLoop(printing);
 
     if (!notifyConfigured())
     {

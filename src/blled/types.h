@@ -15,6 +15,23 @@ struct HeapBuf
 inline volatile bool mqttReconnectNow = false; // status page asked to reconnect to the printer
 inline volatile bool otaPauseMqtt = false; // self-update needs the memory: drop the printer's TLS connection
 inline volatile bool selfUpdating = false; // downloading an update from GitHub
+#ifndef BLLED_LITE
+// Notification wording (notify.h): one template per kind. {name} fills in a value; [ ... ] only
+// shows when every value inside it is known.
+#define NT_COUNT 7
+inline const char *const notifyTplKey[NT_COUNT] = {"started", "first_layer", "progress", "finished", "failed", "needs_you", "alert"};
+inline const char *const notifyDefTitle[NT_COUNT] = {
+    "Print started", "First layer done", "Print {step}% done", "Print finished", "Print {outcome}",
+    "Printer needs you", "Printer alert"};
+inline const char *const notifyDefBody[NT_COUNT] = {
+    "{job} started",
+    "First layer of {job} is down - a good moment to check it",
+    "{job} is {percent}% done[, about {remaining} left]",
+    "{job} finished[ in {duration}]",
+    "{job} {outcome}[ - printer error {error}]",
+    "{reason}[ ({hms})][ - {job}]",
+    "{reason}"};
+#endif
 inline volatile bool notifyPauseMqtt = false; // sending a notification needs the memory: hold the printer's TLS connection
 inline volatile unsigned long otaLastData = 0;
 inline volatile unsigned long otaBytes = 0, otaTotal = 0; // received so far / expected size
@@ -74,6 +91,10 @@ extern "C"
         float bedTemp = 0, bedTarget = 0;
         float chamberTemp = 0;
         char jobName[64] = "";            // subtask_name
+#ifndef BLLED_LITE
+        uint64_t hmsList[8] = {};         // every HMS code showing right now (for code alerts)
+        int hmsCount = 0;
+#endif
 
         // Filament colors (AMS slots 0-15 = unit*4 + slot, plus the external spool)
         char trayColor[16][7] = {};       // "RRGGBB", "" when the slot is empty or unknown
@@ -246,6 +267,11 @@ extern "C"
         bool notifyFirstLayer = false;      // first layer done
         bool notifyProgress = false;        // every notifyProgressStep %
         int notifyProgressStep = 25;
+        // The person's own wording, per kind (started, first layer, progress, finished, failed,
+        // needs you, code alert). Empty = the default text.
+        char notifyTitle[NT_COUNT][48] = {};
+        char notifyBody[NT_COUNT][120] = {};
+        String notifyRules;                 // code alerts: "code = message" lines
 #endif
 
 

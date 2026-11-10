@@ -340,6 +340,7 @@
                     <button type="button" class="ghost" data-ntest="started">Started</button>
                     <button type="button" class="ghost" data-ntest="first_layer">First layer</button>
                     <button type="button" class="ghost" data-ntest="progress">Progress</button>
+                    <button type="button" class="ghost" data-ntest="alert">Code alert</button>
                 </div>
             </div>
             <div class="group">
@@ -373,6 +374,21 @@
                         <option value="50">50%</option>
                     </select></span>
                     <input type="checkbox" class="tog" id="nProgress" name="nProgress">
+                </div>
+            </div>
+            <div class="group">
+                <h2>Wording</h2>
+                <p class="hint">Make any notification say what you want. Leave a box empty to keep the default (shown in grey). Fill-ins: <code>{job}</code> <code>{percent}</code> <code>{step}</code> <code>{layer}</code> <code>{total_layers}</code> <code>{remaining}</code> <code>{duration}</code> <code>{outcome}</code> <code>{reason}</code> <code>{error}</code> <code>{hms}</code> <code>{printer}</code> <code>{time}</code>. Text in <code>[ ]</code> is left out when a fill-in inside it isn't known, like <code>[ in {duration}]</code>.</p>
+                <div id="nTplBox"></div>
+            </div>
+            <div class="group">
+                <h2>Alerts for printer codes</h2>
+                <p class="hint">Your own notification when a certain printer code shows up, even ones that don't stop the print. One per line: <code>code = message</code>. Codes are on the status page when they happen. A <code>*</code> at the end matches every code that starts that way. <code>off</code> means never notify about that code. Messages can use the fill-ins above.</p>
+                <div class="field">
+                    <textarea id="nRules" name="nRules" rows="5" maxlength="500" spellcheck="false" placeholder="HMS_0300_1200_0002_0001 = The front cover fell off again!
+HMS_0700_* = AMS needs a look ({hms})
+0300_8003 = Spaghetti on {job}, go check
+HMS_0C00_0300_0003_000B = off"></textarea>
                 </div>
             </div>
         </section>
@@ -772,6 +788,22 @@
                     $('nNtfyTopic').value = c.nNtfyTopic || '';
                     $('nNtfyServer').value = c.nNtfyServer || 'https://ntfy.sh';
                     $('nProgressStep').value = String(num(c.nProgressStep, 25));
+                    // Wording boxes, one pair per kind (made here so the labels and defaults live in one place)
+                    const NAMES = { started: 'Print started', first_layer: 'First layer done', progress: 'Progress', finished: 'Finished', failed: 'Failed or cancelled', needs_you: 'Needs you', alert: 'Code alert' };
+                    const box = $('nTplBox');
+                    box.textContent = '';
+                    for (const [k, v] of Object.entries(c.nTpl || {})) {
+                        const d = document.createElement('details');
+                        d.className = 'tpl';
+                        const custom = !!(v[0] || v[1]);
+                        d.innerHTML = `<summary>${NAMES[k] || k}<small>${custom ? 'your wording' : ''}</small></summary>
+<div class="tplin"><label for="nT_${k}">Title</label><input type="text" id="nT_${k}" name="nT_${k}" maxlength="47">
+<label for="nB_${k}">Message</label><input type="text" id="nB_${k}" name="nB_${k}" maxlength="119"></div>`;
+                        box.appendChild(d);
+                        $('nT_' + k).value = v[0]; $('nT_' + k).placeholder = v[2];
+                        $('nB_' + k).value = v[1]; $('nB_' + k).placeholder = v[3];
+                    }
+                    $('nRules').value = c.nRules || '';
                     const nChecks = { nFinish: c.nFinish !== false, nFail: c.nFail !== false, nNeedsYou: c.nNeedsYou !== false, nStart: !!c.nStart, nFirstLayer: !!c.nFirstLayer, nProgress: !!c.nProgress };
                     for (const [id, v] of Object.entries(nChecks)) $(id).checked = v;
                     notifyStatus();
