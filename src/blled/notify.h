@@ -292,7 +292,7 @@ static int nPostOnce(const char *url, const String &body, const char *contentTyp
 // A text progress bar: 10 blocks, filled to the percent (UTF-8, shows in Discord, ntfy and most apps)
 static String nBar(int percent)
 {
-    if (percent < 0)
+    if (percent < 0 || !printerConfig.notifyBar)
         return "";
     int filled = (constrain(percent, 0, 100) + 5) / 10;
     String b;
@@ -356,7 +356,8 @@ static bool nSendDiscord(const NotifyMsg &m)
                 snprintf(b, sizeof(b), " %d%% (layer %d of %d)", m.percent, m.layer, m.totalLayers);
             else
                 snprintf(b, sizeof(b), " %d%%", m.percent);
-            p["value"] = nBar(m.percent) + b;
+            String bar = nBar(m.percent);
+            p["value"] = bar.length() ? bar + b : String(b + 1);
             p["inline"] = false; // a whole line, so the bar isn't squeezed
         }
     }
@@ -686,10 +687,16 @@ static void nEmit(uint8_t event, const NCtx &c, uint8_t only = 0, bool test = fa
         return;
     const char *ti = printerConfig.notifyTitle[t][0] ? printerConfig.notifyTitle[t] : notifyDefTitle[t];
     const char *bo = printerConfig.notifyBody[t][0] ? printerConfig.notifyBody[t] : notifyDefBody[t];
+    // Where it goes: the one service a test was sent to, or this kind's own choice of services
+    uint8_t mask = only ? only : (printerConfig.notifyRoute[t] & 7);
+    if (!mask)
+        return;
     NotifyMsg m = {};
     m.event = event;
-    m.only = only;
+    m.only = mask;
     String title = nRender(ti, c), body = nRender(bo, c);
+    title.trim();
+    body.trim();
     if (test)
         title = "[Test] " + title;
     strlcpy(m.title, title.c_str(), sizeof(m.title));
@@ -903,14 +910,21 @@ static const char *nNeedsYouReason()
 }
 
 // Test from the settings page: a made-up example of one kind of notification (in the person's
-// own wording), to all services or just one ("discord", "ntfy", "webhook"). Returns false if
-// that service isn't set up.
-bool notifyTest(const String &event, const String &service)
+// own wording), to where that kind normally goes or just one service ("discord", "ntfy",
+// "webhook"). Returns 0 if sent, 1 if that service isn't set up, 2 if that kind goes nowhere set up.
+int notifyTest(const String &event, const String &service)
 {
     uint8_t only = service == "discord" ? 1 : service == "ntfy" ? 2 : service == "webhook" ? 4 : 0;
     uint8_t have = (printerConfig.notifyDiscordUrl[0] ? 1 : 0) | (printerConfig.notifyNtfyTopic[0] ? 2 : 0) | (printerConfig.notifyWebhookUrl[0] ? 4 : 0);
     if (!(only ? (have & only) : have))
-        return false;
+        return 1;
+    if (!only)
+    {
+        int t = event == "started" ? 0 : event == "first_layer" ? 1 : event == "progress" ? 2 : event == "finished" ? 3 :
+                event == "failed" ? 4 : event == "needs_you" ? 5 : event == "alert" ? 6 : -1;
+        if (t >= 0 && !(printerConfig.notifyRoute[t] & have))
+            return 2;
+    }
 
     NCtx c;
     strlcpy(c.job, "Test print", sizeof(c.job));
@@ -997,7 +1011,7 @@ bool notifyTest(const String &event, const String &service)
         nEmit(ev, c, only, true);
     }
     notifyKick();
-    return true;
+    return 0;
 }
 
 void notifyLoop()

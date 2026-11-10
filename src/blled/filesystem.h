@@ -328,6 +328,12 @@ void saveFileSystem()
     json["nFirstLayer"] = printerConfig.notifyFirstLayer;
     json["nProgress"] = printerConfig.notifyProgress;
     json["nProgressStep"] = printerConfig.notifyProgressStep;
+    json["nBar"] = printerConfig.notifyBar;
+    {
+        JsonArray r = json["nRoute"].to<JsonArray>();
+        for (int i = 0; i < NT_COUNT; i++)
+            r.add(printerConfig.notifyRoute[i]);
+    }
     // Only the wording that was changed (keeps the settings file small)
     {
         JsonObject tpl = json["nTpl"].to<JsonObject>();
@@ -549,6 +555,9 @@ void loadFileSystem()
         printerConfig.notifyFirstLayer = json["nFirstLayer"] | false;
         printerConfig.notifyProgress = json["nProgress"] | false;
         printerConfig.notifyProgressStep = constrain((int)(json["nProgressStep"] | 25), 5, 50);
+        printerConfig.notifyBar = json["nBar"] | true;
+        for (int i = 0; i < NT_COUNT; i++)
+            printerConfig.notifyRoute[i] = (int)(json["nRoute"][i] | 7) & 7;
         for (int i = 0; i < NT_COUNT; i++)
         {
             JsonArrayConst a = json["nTpl"][notifyTplKey[i]];

@@ -326,7 +326,7 @@
                 <div class="row">
                     <label for="nTestTo" class="txt"><b>Send to</b></label>
                     <select id="nTestTo" style="width:auto;margin:0">
-                        <option value="all">All that are set up</option>
+                        <option value="all">Where that kind normally goes</option>
                         <option value="discord">Discord only</option>
                         <option value="ntfy">ntfy only</option>
                         <option value="webhook">Webhook only</option>
@@ -375,6 +375,15 @@
                     </select></span>
                     <input type="checkbox" class="tog" id="nProgress" name="nProgress">
                 </div>
+                <label class="row sub" data-show-if="nProgress">
+                    <span class="txt"><b>Show a progress bar</b><small>█████░░░░░ 50% - with <code>{bar}</code> in your own wording too.</small></span>
+                    <input type="checkbox" class="tog" id="nBar" name="nBar">
+                </label>
+            </div>
+            <div class="group">
+                <h2>Where each one goes</h2>
+                <p class="hint">Pick which services get each kind. For example: everything to ntfy, but problems to Discord too.</p>
+                <div class="field"><table class="nroute" id="nRouteTable"></table></div>
             </div>
             <div class="group">
                 <h2>Wording</h2>
@@ -804,7 +813,18 @@ HMS_0C00_0300_0003_000B = off"></textarea>
                         $('nB_' + k).value = v[1]; $('nB_' + k).placeholder = v[3];
                     }
                     $('nRules').value = c.nRules || '';
-                    const nChecks = { nFinish: c.nFinish !== false, nFail: c.nFail !== false, nNeedsYou: c.nNeedsYou !== false, nStart: !!c.nStart, nFirstLayer: !!c.nFirstLayer, nProgress: !!c.nProgress };
+                    // Routing grid: a row per kind, a column per service
+                    const SVC = [['d', 'Discord', 1], ['n', 'ntfy', 2], ['w', 'Webhook', 4]];
+                    const tbl = $('nRouteTable');
+                    tbl.innerHTML = '<tr><th></th>' + SVC.map(s => `<th>${s[1]}</th>`).join('') + '</tr>';
+                    Object.keys(c.nTpl || {}).forEach((k, i) => {
+                        const mask = (c.nRoute || [])[i] ?? 7;
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<th scope="row">${NAMES[k] || k}</th>` + SVC.map(([s, name, bit]) =>
+                            `<td><input type="checkbox" name="nR_${k}_${s}" aria-label="${NAMES[k] || k} to ${name}"${mask & bit ? ' checked' : ''}></td>`).join('');
+                        tbl.appendChild(tr);
+                    });
+                    const nChecks = { nFinish: c.nFinish !== false, nFail: c.nFail !== false, nNeedsYou: c.nNeedsYou !== false, nStart: !!c.nStart, nFirstLayer: !!c.nFirstLayer, nProgress: !!c.nProgress, nBar: c.nBar !== false };
                     for (const [id, v] of Object.entries(nChecks)) $(id).checked = v;
                     notifyStatus();
                 }

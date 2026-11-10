@@ -26,7 +26,7 @@ inline const char *const notifyDefTitle[NT_COUNT] = {
 inline const char *const notifyDefBody[NT_COUNT] = {
     "{job} started",
     "First layer of {job} is down - a good moment to check it",
-    "{bar} {percent}%[ - about {remaining} left] - {job}",
+    "[{bar} ]{percent}%[ - about {remaining} left] - {job}",
     "{job} finished[ in {duration}]",
     "{job} {outcome}[ - printer error {error}]",
     "{reason}[ ({hms})][ - {job}]",
@@ -267,6 +267,9 @@ extern "C"
         bool notifyFirstLayer = false;      // first layer done
         bool notifyProgress = false;        // every notifyProgressStep %
         int notifyProgressStep = 25;
+        bool notifyBar = true;              // progress bar ({bar} and in Discord's Progress line)
+        // Where each kind goes (same order as the templates): 1 Discord, 2 ntfy, 4 webhook
+        uint8_t notifyRoute[NT_COUNT] = {7, 7, 7, 7, 7, 7, 7};
         // The person's own wording, per kind (started, first layer, progress, finished, failed,
         // needs you, code alert). Empty = the default text.
         char notifyTitle[NT_COUNT][48] = {};

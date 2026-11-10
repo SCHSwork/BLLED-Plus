@@ -276,6 +276,12 @@ void handleGetConfig(AsyncWebServerRequest *request)
     doc["nFirstLayer"] = printerConfig.notifyFirstLayer;
     doc["nProgress"] = printerConfig.notifyProgress;
     doc["nProgressStep"] = printerConfig.notifyProgressStep;
+    doc["nBar"] = printerConfig.notifyBar;
+    {
+        JsonArray r = doc["nRoute"].to<JsonArray>();
+        for (int i = 0; i < NT_COUNT; i++)
+            r.add(printerConfig.notifyRoute[i]);
+    }
     {
         // Wording: what's set (empty = default) and the defaults, for the boxes' placeholders
         JsonObject tpl = doc["nTpl"].to<JsonObject>();
@@ -515,6 +521,15 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
         printerConfig.notifyFirstLayer = request->hasParam("nFirstLayer", true);
         printerConfig.notifyProgress = request->hasParam("nProgress", true);
         printerConfig.notifyProgressStep = constrain(getSafeParamInt(request, "nProgressStep", printerConfig.notifyProgressStep), 5, 50);
+        printerConfig.notifyBar = request->hasParam("nBar", true);
+        for (int i = 0; i < NT_COUNT; i++)
+        {
+            // Ticks in the "Where each one goes" grid: nR_<kind>_d / _n / _w
+            String k = String("nR_") + notifyTplKey[i];
+            printerConfig.notifyRoute[i] = (request->hasParam((k + "_d").c_str(), true) ? 1 : 0) |
+                                           (request->hasParam((k + "_n").c_str(), true) ? 2 : 0) |
+                                           (request->hasParam((k + "_w").c_str(), true) ? 4 : 0);
+        }
         for (int i = 0; i < NT_COUNT; i++)
         {
             String k = String("nT_") + notifyTplKey[i], v = getSafeParamValue(request, k.c_str());
@@ -1190,8 +1205,11 @@ void setupWebserver()
             return refuseForeign(request);
         String event = request->hasParam("event", true) ? request->getParam("event", true)->value() : String("test");
         String service = request->hasParam("service", true) ? request->getParam("service", true)->value() : String("all");
-        if (!notifyTest(event, service))
+        int r = notifyTest(event, service);
+        if (r == 1)
             return request->send(409, "text/plain", service == "all" ? "Set up Discord, ntfy or a webhook and save first" : "That one isn't set up yet - fill it in and save first");
+        if (r == 2)
+            return request->send(409, "text/plain", "That kind isn't ticked for any service that's set up (see Where each one goes)");
         request->send(200, "text/plain", "Sending"); });
 #endif
     webServer.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request)

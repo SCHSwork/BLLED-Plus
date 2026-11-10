@@ -237,6 +237,11 @@ body {
 .secret button { width: auto; flex: none; padding: 10px 12px; margin: 0; }
 .ntests { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .ntests button { margin: 0; padding: 10px 12px; }
+.nroute { width: 100%; border-collapse: collapse; font-size: 14px; }
+.nroute th, .nroute td { padding: 7px 4px; text-align: center; border-top: 1px solid var(--line); }
+.nroute tr:first-child th { border-top: 0; color: var(--muted); font-weight: 600; font-size: 12px; }
+.nroute th[scope="row"] { text-align: left; font-weight: 600; }
+.nroute input { width: 20px; height: 20px; accent-color: var(--accent); }
 .tpl { border-top: 1px solid var(--line); }
 .tpl summary { padding: 12px 16px; cursor: pointer; font-weight: 600; }
 .tpl summary small { font-weight: 400; color: var(--accent); margin-left: 8px; }
