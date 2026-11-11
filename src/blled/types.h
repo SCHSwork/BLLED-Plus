@@ -55,6 +55,8 @@ extern "C"
     typedef struct PrinterVaraiblesStruct{
         String parsedHMSlevel = "";
         uint64_t parsedHMScode = 0;            //8 bytes per code stored
+        uint64_t dismissedHms = 0;             // the error someone dismissed on the status page (lights ignore it)
+        bool finishedInQuiet = false;          // a print finished during quiet hours: show it when they end
         String gcodeState = "FINISH";           //Initialised to Finish so the logic doesn't 
                                                 //assume a Print has just finished and needs 
                                                 //to wait for a door interaction to continue

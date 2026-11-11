@@ -731,8 +731,9 @@ void fillStatusJson(JsonDocument &doc)
     doc["gcodeState"] = printerVariables.gcodeState;
     doc["doorOpen"] = printerVariables.doorOpen;
     doc["chamberLight"] = printerVariables.printerledstate;
-    doc["hms"] = printerVariables.parsedHMSlevel;
-    if (printerVariables.parsedHMSlevel.length() > 0)
+    bool hmsDismissed = printerVariables.dismissedHms && printerVariables.parsedHMScode == printerVariables.dismissedHms;
+    doc["hms"] = hmsDismissed ? "" : printerVariables.parsedHMSlevel;
+    if (printerVariables.parsedHMSlevel.length() > 0 && !hmsDismissed)
     {
         uint64_t c = printerVariables.parsedHMScode;
         char code[24];
@@ -746,7 +747,10 @@ void fillStatusJson(JsonDocument &doc)
         snprintf(pe, sizeof(pe), "%04X_%04X", (unsigned)(printerVariables.printError >> 16), (unsigned)(printerVariables.printError & 0xFFFF));
         doc["printError"] = pe;
     }
-    doc["h2"] = printerVariables.perNozzleSlots; // picks the H2 wording of an error description
+    doc["h2"] = printerVariables.perNozzleSlots;
+#ifndef BLLED_LITE
+    doc["canDismiss"] = true;
+#endif // picks the H2 wording of an error description
     doc["percent"] = printerVariables.percent;
     doc["remainingMins"] = printerVariables.remainingMins;
     doc["layer"] = printerVariables.layer;
@@ -1244,6 +1248,24 @@ void setupWebserver()
         shouldRestart = true;
         restartRequestTime = millis();
         request->send(200, "text/plain", "Restarting"); });
+#ifndef BLLED_LITE
+    // "Dismiss" on the status page's error alert: the lights stop showing this error
+    webServer.on("/api/dismiss-error", HTTP_POST, [](AsyncWebServerRequest *request)
+                 {
+        if (!isAuthorized(request))
+            return request->requestAuthentication();
+        if (!fromOwnPage(request))
+            return refuseForeign(request);
+        if (!printerVariables.hmsstate)
+            return request->send(409, "text/plain", "No error to dismiss");
+        printerVariables.dismissedHms = printerVariables.parsedHMScode; // the light code and the next report skip it
+        printerConfig.replicate_update = true;
+        LogSerial.printf("[LED] Error %04X_%04X_%04X_%04X dismissed - the lights ignore it until the printer clears it\n",
+                         (int)(printerVariables.dismissedHms >> 48), (int)((printerVariables.dismissedHms >> 32) & 0xFFFF),
+                         (int)((printerVariables.dismissedHms >> 16) & 0xFFFF), (int)(printerVariables.dismissedHms & 0xFFFF));
+        requestLedUpdate();
+        request->send(200, "text/plain", "Dismissed"); });
+#endif
     webServer.on("/api/reconnect", HTTP_POST, [](AsyncWebServerRequest *request)
                  {
         if (!isAuthorized(request))

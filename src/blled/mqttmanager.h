@@ -153,6 +153,7 @@ static unsigned long doorOpenPendingMs = 0;
 static void doorOpened(unsigned long when)
 {
     printerVariables.lastdoorOpenms = when;
+    printerVariables.finishedInQuiet = false; // someone has seen the finished print
 
     // Remember if the strip was dark when the door opened, so closing the door can put it
     // back to dark (the door only "borrows" the light). Not during a print.
@@ -835,6 +836,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
                 printerConfig.finishStartms = millis();
                 printerConfig.finish_check = true;
                 printerVariables.celebratePending = true;
+                printerVariables.finishedInQuiet = quietNow && printerConfig.finishindication;
                 // Safe-to-remove: hold the finish color until the bed cools (only for a print
                 // that just ended here, not when the controller boots into a finished printer)
                 if (printerConfig.coolDownEnabled && printerConfig.finishindication && printerVariables.gcodeState == "RUNNING")
@@ -958,6 +960,7 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
 
 #ifndef BLLED_LITE
         printerVariables.hmsCount = 0;
+        bool dismissedSeen = false;
 #endif
         for (const auto &hms : messageobject["print"]["hms"].as<JsonArray>())
         {
@@ -972,6 +975,14 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             snprintf(strHMScode, sizeof(strHMScode), "%04X_%04X_%04X_%04X",
                      (int)(code >> 48), (int)((code >> 32) & 0xFFFF), (int)((code >> 16) & 0xFFFF), (int)(code & 0xFFFF));
 
+#ifndef BLLED_LITE
+            // Dismissed on the status page: the lights ignore it until the printer clears it
+            if (printerVariables.dismissedHms && code == printerVariables.dismissedHms)
+            {
+                dismissedSeen = true;
+                continue;
+            }
+#endif
             // Check if code is in ignore list (accepts with or without the HMS_ prefix)
             if (normalizedIgnoreList.indexOf("," + String(strHMScode) + ",") >= 0)
             {
@@ -988,6 +999,10 @@ void ParseCallback(char *topic, byte *payload, unsigned int length)
             }
         }
 
+#ifndef BLLED_LITE
+        if (!dismissedSeen)
+            printerVariables.dismissedHms = 0; // gone: if it comes back, show it again
+#endif
         if (oldHMSlevel != printerVariables.parsedHMSlevel)
         {
             // example, cap fall off

@@ -762,7 +762,8 @@ bool holdingFinish()
 {
     return (printerConfig.finishExit && printerVariables.waitingForDoor) ||
            (printerConfig.finishExit == false && ((millis() - printerConfig.finishStartms) < (unsigned long)printerConfig.finishTimeOut)) ||
-           printerVariables.coolWaiting;
+           printerVariables.coolWaiting ||
+           printerVariables.finishedInQuiet; // finished overnight: kept until quiet hours end
 }
 
 bool printingState()
@@ -1143,7 +1144,7 @@ void updateleds()
             return;
         };
         // SERIOUS HMS state
-        if (printerVariables.parsedHMSlevel == "Serious")
+        if (printerVariables.parsedHMSlevel == "Serious" && printerVariables.parsedHMScode != printerVariables.dismissedHms)
         {
             if (hmsModule() == 0x07)
             {
@@ -1158,7 +1159,7 @@ void updateleds()
         };
 
         // FATAL HMS state
-        if (printerVariables.parsedHMSlevel == "Fatal")
+        if (printerVariables.parsedHMSlevel == "Fatal" && printerVariables.parsedHMScode != printerVariables.dismissedHms)
         {
             if (hmsModule() == 0x07)
             {
@@ -1609,6 +1610,21 @@ void ledsloop()
         {
             quietNow = q;
             LogSerial.println(q ? F("[Quiet] Quiet hours started - dimming") : F("[Quiet] Quiet hours ended"));
+            if (!q)
+            {
+                // Morning: back to normal (the idle timer may have run out overnight)
+                printerConfig.inactivityStartms = millis();
+                printerConfig.isIdleOFFActive = false;
+                if (printerVariables.finishedInQuiet)
+                {
+                    // A print finished overnight: show its finish color now, with a fresh timer
+                    printerVariables.finishedInQuiet = false;
+                    printerConfig.finishStartms = millis();
+                    printerConfig.finish_check = true;
+                    printerVariables.finished = printerConfig.finishindication;
+                    LogSerial.println(F("[Quiet] A print finished overnight - showing it now"));
+                }
+            }
             printerConfig.replicate_update = true;
             printerConfig.maintMode_update = true;
             printerConfig.discoMode_update = true;

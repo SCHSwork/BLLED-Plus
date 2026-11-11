@@ -56,6 +56,7 @@
         <div class="group" id="alert" role="alert"><b id="alertTitle"></b><span id="alertText"></span>
             <a id="alertLink" target="_blank" rel="noopener" hidden>More on the Bambu wiki</a>
             <button type="button" id="fixSerial" hidden></button>
+            <button type="button" id="dismissErr" hidden>Dismiss: stop showing it on the lights</button>
         </div>
 
         <div class="group quick" aria-label="Quick controls">
@@ -216,7 +217,7 @@
             ls.textContent = d.printerConnection ? 'Connected to the printer' : (d.mqttAuthFailed ? 'Access code refused' : 'Printer offline');
 
             // Problems first
-            let title = '', text = '', link = '';
+            let title = '', text = '', link = '', dismiss = false;
             const fix = $('fixSerial');
             fix.hidden = true;
             if (d.serialMismatch) {
@@ -235,6 +236,7 @@
                 const t = hmsText('h', d.hmsCode || '');
                 text = (t ? t + ' ' : '') + '(HMS_' + (d.hmsCode || '') + ')';
                 link = hmsWiki(d.hmsCode || '');
+                dismiss = !!d.canDismiss;
             } else if (d.printError && d.printerConnection && ['FAILED', 'PAUSE'].includes(d.gcodeState)) {
                 title = d.gcodeState === 'PAUSE' ? 'The printer paused the print' : 'The print stopped';
                 const t = hmsText('e', d.printError);
@@ -242,6 +244,7 @@
             }
             set('alertTitle', title); set('alertText', text);
             $('alertLink').hidden = !link; if (link) $('alertLink').href = link;
+            $('dismissErr').hidden = !dismiss;
             $('alert').classList.toggle('show', !!title);
 
             const active = d.printerConnection && d.percent >= 0 && ['RUNNING', 'PAUSE', 'PREPARE'].includes(d.gcodeState);
@@ -293,6 +296,11 @@
 
         // ---- Quick controls ----
         let quickBusy = false, quickTimer;
+        $('dismissErr').onclick = async () => {
+            $('dismissErr').disabled = true;
+            try { await post('/api/dismiss-error', {}); } catch (e) { }
+            $('dismissErr').disabled = false;
+        };
         async function post(url, params) {
             const r = await fetch(url, {
                 method: 'POST',
