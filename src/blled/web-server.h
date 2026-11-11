@@ -383,6 +383,9 @@ void handleSubmitConfig(AsyncWebServerRequest *request)
             }
             else
             {
+#ifndef BLLED_LITE // (lite: no room - add it in Home Assistant by its address)
+                MDNS.addService("blled", "tcp", 80); // Home Assistant finds it by this
+#endif
                 LogSerial.print(F("[MDNS] Hostname now: "));
                 LogSerial.println(globalVariables.Host);
             }
@@ -685,6 +688,7 @@ void fillStatusJson(JsonDocument &doc)
     doc["edition"] = "full";
 #endif
     doc["host"] = globalVariables.Host;
+    doc["mac"] = WiFi.macAddress(); // tells controllers apart (Home Assistant)
     doc["wifi_rssi"] = WiFi.RSSI();
     doc["ip"] = WiFi.localIP().toString();
     doc["uptime"] = millis() / 1000;
@@ -1168,6 +1172,9 @@ void setupWebserver()
         while (1)
             delay(500);
     }
+#ifndef BLLED_LITE // (lite: no room - add it in Home Assistant by its address)
+    MDNS.addService("blled", "tcp", 80); // Home Assistant finds it by this
+#endif
 
     LogSerial.println(F("Setting up webserver"));
 
