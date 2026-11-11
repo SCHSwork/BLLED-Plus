@@ -65,6 +65,10 @@ Each setting has a **Preview** button that shows it on the real strip without sa
 - If the page won't open in Chrome on Android, try Samsung Internet or Firefox. Some browsers force `https://`, and the controller only speaks `http://`.
 - Give the controller a fixed address in your router (often called *address reservation* or *DHCP reservation*), so a router restart never moves it.
 
+### Home Assistant
+
+**[BLLED Plus for Home Assistant](https://github.com/SCHSwork/ha-blled-plus)** adds the controller to Home Assistant: the strip as a light (with the modes as effects), a **Dismiss error** button, sensors, and firmware updates in Home Assistant's Updates list. Install it through HACS as a custom repository. It needs BLLED Plus 2.8.50 or newer. Full-edition controllers are found automatically; for lite, enter the controller's address.
+
 ### Phone app (Android)
 
 The BLLED Plus app opens your controller's pages without typing an address, and file uploads (firmware and settings backups) work in it. Download `BLLED-Plus-app-<version>.apk` from the newest **app-v** release on the [Releases](../../releases) page and install it (allow installing from your browser when Android asks). The app checks for its own updates.
