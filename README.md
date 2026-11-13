@@ -67,7 +67,7 @@ Each setting has a **Preview** button that shows it on the real strip without sa
 
 ### Home Assistant
 
-**[BLLED Plus for Home Assistant](https://github.com/SCHSwork/ha-blled-plus)** adds the controller to Home Assistant: the strip as a light (with the modes as effects), a **Dismiss error** button, sensors, and firmware updates in Home Assistant's Updates list. Install it through HACS as a custom repository. It needs BLLED Plus 2.8.50 or newer. Full-edition controllers are found automatically; for lite, enter the controller's address.
+**[BLLED Plus for Home Assistant](https://github.com/SCHSwork/ha-blled-plus)** adds the controller to Home Assistant: the strip as a light (with the modes as effects), a **Dismiss error** button, sensors, and firmware updates in Home Assistant's Updates list. Install it from the Marketplace (Home Assistant 2026.11+, add it by link) or HACS as a custom repository. It needs BLLED Plus 2.8.50 or newer. Full-edition controllers are found automatically; for lite, enter the controller's address.
 
 ### Phone app (Android)
 
