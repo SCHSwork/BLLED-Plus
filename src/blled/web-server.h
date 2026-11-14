@@ -710,6 +710,7 @@ void fillStatusJson(JsonDocument &doc)
     const char *seen = bblSerialAt(printerConfig.printerIP);
     doc["discoveredSerial"] = seen;
     doc["serialMismatch"] = strlen(seen) > 0 && strcmp(seen, printerConfig.serialNumber) != 0;
+    doc["serialSeenAt"] = bblIpOfSerial(printerConfig.serialNumber); // where our printer really is
     doc["brightness"] = printerConfig.brightness;
     doc["filamentColor"] = activeFilamentHex();
     doc["quietActive"] = (bool)quietNow;
@@ -1027,13 +1028,11 @@ void handleFactoryResetPage(AsyncWebServerRequest *request)
     if (!isAuthorized(request))
         return request->requestAuthentication();
     request->send(200, "text/html",
-                  "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>Factory reset</title></head>"
-                  "<body style='font-family:sans-serif;padding:16px'><h1>Factory reset</h1>"
-                  "<p>This erases all settings and restarts the controller.</p>"
-                  "<button id='go'>Erase all settings</button> <p id='msg' role='status'></p>"
-                  "<script>document.getElementById('go').onclick=async()=>{const m=document.getElementById('msg');"
-                  "try{const r=await fetch('/factoryreset',{method:'POST',headers:{'X-BLLED':'1'}});m.textContent=await r.text();}"
-                  "catch(e){m.textContent='Device is likely restarting.';}};</script></body></html>");
+                  // (kept short: every byte counts in the lite edition)
+                  "<!DOCTYPE html><meta name=viewport content='width=device-width'><title>Factory reset</title>"
+                  "<body style=font-family:sans-serif><h1>Factory reset</h1><p>Erases all settings and restarts the controller.<p>"
+                  "<button onclick=\"fetch('/factoryreset',{method:'POST',headers:{'X-BLLED':1}}).then(r=>r.text(),()=>'Restarting')"
+                  ".then(t=>m.textContent=t)\">Erase all settings</button><p id=m role=status>");
 }
 
 void handleFactoryReset(AsyncWebServerRequest *request)

@@ -181,7 +181,7 @@ void setup()
 
     if (strlen(globalVariables.SSID) == 0 || strlen(globalVariables.APPW) == 0)
     {
-        Serial.println(F("SSID or password is missing. Please configure both by going to: https://dutchdevelop.com/blled-configuration-setup/"));
+        Serial.println(F("No Wi-Fi set up yet: join the BLLED_AP hotspot to set it up"));
         tweenToColor(100, 0, 100, 0, 0); // PINK
         startAPMode();
         setupWebserver();

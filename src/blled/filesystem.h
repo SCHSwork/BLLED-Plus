@@ -358,7 +358,7 @@ void saveFileSystem()
     configFile.close();
     if (!configFileValid(configTmpPath))
     {
-        LogSerial.println(F("[Filesystem] Saving config failed (the new file didn't read back) - kept the old settings"));
+        LogSerial.println(F("[Filesystem] Saving failed (didn't read back) - kept the old settings"));
         LittleFS.remove(configTmpPath);
         return;
     }
@@ -393,7 +393,7 @@ void settingsReadFailed()
         delay(1500);
         ESP.restart();
     }
-    LogSerial.println(F("[Filesystem] Couldn't read the settings - running on defaults for now. The settings file was left as it is."));
+    LogSerial.println(F("[Filesystem] Settings unreadable - running on defaults, file kept"));
 }
 
 void loadFileSystem()

@@ -564,8 +564,8 @@ static bool suDownload(WiFiClientSecure &client)
     if (ok && !suSignatureOk(hash, sig, sigLen))
     {
         // Details help tell a bad download from a bad signature
-        snprintf(suError, sizeof(suError), "The file isn't signed by BLLED Plus, so it wasn't installed (sig %d bytes %02x%02x, hash %02x%02x%02x%02x, key %d, check %d)",
-                 sigLen, sig[0], sig[1], hash[0], hash[1], hash[2], hash[3], suKeyRc, suVerifyRc);
+        snprintf(suError, sizeof(suError), "The file isn't signed by BLLED Plus, so it wasn't installed (%d bytes, key %d, check %d)",
+                 sigLen, suKeyRc, suVerifyRc);
         ok = false;
         // Don't keep downloading a release that fails the check
         strlcpy(suBadTag, suLatest, sizeof(suBadTag));

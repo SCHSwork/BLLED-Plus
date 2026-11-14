@@ -220,7 +220,10 @@
             let title = '', text = '', link = '', dismiss = false;
             const fix = $('fixSerial');
             fix.hidden = true;
-            if (d.serialMismatch) {
+            if (d.serialMismatch && d.serialSeenAt && d.serialSeenAt !== d.printerIP) {
+                title = 'Your printer moved to ' + d.serialSeenAt;
+                text = 'Your router gave it a new address. The controller is switching to it.';
+            } else if (d.serialMismatch) {
                 title = 'The saved serial number belongs to a different printer';
                 text = 'The printer at ' + d.printerIP + ' is ' + d.discoveredSerial + ', but the controller is set to ' + (d.serial || 'nothing') + ', so it can’t hear that printer.';
                 fix.textContent = 'Use ' + d.discoveredSerial;

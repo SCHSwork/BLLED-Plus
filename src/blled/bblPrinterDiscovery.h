@@ -57,6 +57,30 @@ const char *bblSerialAt(const char *ipStr)
   return "";
 }
 
+// Where the printer with this serial answered from, or "" if not seen.
+String bblIpOfSerial(const char *serial)
+{
+  if (!serial[0])
+    return "";
+  for (int i = 0; i < bblKnownPrinterCount; i++)
+    if (strcmp(bblLastKnownPrinters[i].usn, serial) == 0)
+      return bblLastKnownPrinters[i].ip.toString();
+  return "";
+}
+
+// A different printer answers from our saved address (the router reshuffled addresses): don't
+// log in there, and search straight away for where ours went.
+bool bblWrongPrinterAtIp()
+{
+  const char *seen = bblSerialAt(printerConfig.printerIP);
+  return seen[0] && printerConfig.serialNumber[0] && strcmp(seen, printerConfig.serialNumber) != 0;
+}
+
+void bblSearchSoon()
+{
+  bblLastDiscovery = millis() - BBL_DISCOVERY_INTERVAL;
+}
+
 void bblPrintKnownPrinters()
 {
   LogSerial.println("[BBLScan] Known printers:");
@@ -96,16 +120,20 @@ static void bblHandleAnswer(IPAddress senderIP, const String &response)
     // MQTT login (the access code) would then be sent to it.
     bool printerUnreachable = !printerVariables.online && printerVariables.disconnectMQTTms != 0 &&
                               (millis() - printerVariables.disconnectMQTTms) > 120000UL;
+    // ...or straight away when another printer now answers from the saved address
+    if (!printerVariables.online && bblWrongPrinterAtIp())
+      printerUnreachable = true;
     if (String(printerConfig.printerIP) != currentIP && !printerUnreachable)
     {
       if (printerConfig.debugingchange)
-        LogSerial.printf("[BBLScan] Printer serial answered from %s, but the configured printer is online - ignoring\n", currentIP.c_str());
+        LogSerial.printf("[BBLScan] Serial answered from %s, but our printer is online - ignored\n", currentIP.c_str());
     }
     else if (String(printerConfig.printerIP) != currentIP)
     {
       LogSerial.printf("[BBLScan] Detected matching USN with updated IP (%s → %s). Saving...\n", printerConfig.printerIP, currentIP.c_str());
       strlcpy(printerConfig.printerIP, currentIP.c_str(), sizeof(printerConfig.printerIP));
       saveFileSystem();
+      mqttReconnectNow = true; // connect to it now, not after the retry wait
     }
   }
 

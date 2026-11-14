@@ -89,6 +89,20 @@ bool connectMqtt()
         return false;
     }
 
+    if (bblWrongPrinterAtIp())
+    {
+        // Our access code isn't for that printer, so don't send it there
+        static unsigned long lastNote = 0;
+        if (millis() - lastNote > 60000)
+        {
+            lastNote = millis();
+            LogSerial.printf("[MQTT] %s is now a different printer (%s) - looking for ours\n", printerConfig.printerIP, bblSerialAt(printerConfig.printerIP));
+        }
+        printerVariables.mqttAuthFailed = false;
+        bblSearchSoon();
+        return false;
+    }
+
     LogSerial.printf("[MQTT] Connecting to %s ...\n", printerConfig.printerIP);
     unsigned long t0 = millis();
 
@@ -275,7 +289,7 @@ void mqttTask(void *parameter)
             if (mqttClient.connected())
                 mqttClient.disconnect();
             wifiSecureClient.stop();
-            LogSerial.println(F("[MQTT] Reconnecting to the printer (asked from the status page)"));
+            LogSerial.println(F("[MQTT] Reconnecting to the printer"));
             if (printerVariables.online)
             {
                 printerVariables.online = false;
@@ -1165,7 +1179,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         if (millis() - lastNote > 60000)
         {
             lastNote = millis();
-            LogSerial.printf("[MQTT] Skipped a %u-byte printer message - not enough free memory (%u KB free, largest block %u KB)\n",
+            LogSerial.printf("[MQTT] Skipped a %u-byte message: low memory (%u KB free, block %u KB)\n",
                              (unsigned)stream.wanted(), ESP.getFreeHeap() / 1024, ESP.getMaxAllocHeap() / 1024);
         }
         stream.flush();
