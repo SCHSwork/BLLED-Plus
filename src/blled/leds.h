@@ -317,12 +317,18 @@ bool filamentLedColor(COLOR &out)
         return false; // black / very dark
     if (lo > 190 && hi - lo < 40)
         return false; // white / light grey
-    // Filament colors are often dark (navy, forest green). Scale so the brightest channel is
-    // full, keeping the hue, so every filament lights the chamber equally well.
-    float k = 255.0f / hi;
-    out.r = (short)(r * k);
-    out.g = (short)(g * k);
-    out.b = (short)(b * k);
+    // Filament colors are often dark (navy, forest green) and rarely fully saturated: a "red" is
+    // really something like (193, 46, 31). The shared part of R, G and B only washes the color
+    // out on the strip, so for clearly tinted colors take it away first (a pure, deep color), then
+    // scale so the brightest channel is full, keeping the hue, so every filament lights the
+    // chamber equally well. Greys and pale colors are left alone.
+    float sat = (float)(hi - lo) / (float)hi;
+    float t = constrain((sat - 0.35f) / 0.30f, 0.0f, 1.0f);
+    float sub = lo * t;
+    float k = 255.0f / (hi - sub);
+    out.r = (short)((r - sub) * k + 0.5f);
+    out.g = (short)((g - sub) * k + 0.5f);
+    out.b = (short)((b - sub) * k + 0.5f);
     out.ww = 0;
     out.cw = 0;
     snprintf(out.RGBhex, sizeof(out.RGBhex), "#%02X%02X%02X", out.r, out.g, out.b);
@@ -371,9 +377,17 @@ void ledSetNextFx(uint8_t fx)
 // pastel (#FFC0C0 = white + red), would otherwise be mixed from red, green and blue, which looks
 // different from the real white and shifts with the color balance. The shared part of R, G and B
 // moves to the warm + cool white LEDs; what's left over stays as color.
+// Only for pale colors: the white LEDs are far brighter than the RGB channels they replace, so
+// doing this to a saturated color (a red with a little green and blue in it) washes it out to
+// pink. The amount fades in as the shared part grows relative to the brightest channel.
 void extractWhite(int &r, int &g, int &b, int &ww, int &cw)
 {
+    int hi = max(r, max(g, b));
     int w = min(r, min(g, b));
+    if (w <= 0 || hi <= 0)
+        return;
+    float share = constrain(((float)w / hi - 0.4f) / 0.4f, 0.0f, 1.0f); // 0 below 40%, full from 80%
+    w = (int)(w * share);
     if (w <= 0)
         return;
     r -= w;
