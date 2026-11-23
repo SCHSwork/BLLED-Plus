@@ -322,13 +322,11 @@ bool filamentLedColor(COLOR &out)
     // out on the strip, so for clearly tinted colors take it away first (a pure, deep color), then
     // scale so the brightest channel is full, keeping the hue, so every filament lights the
     // chamber equally well. Greys and pale colors are left alone.
-    float sat = (float)(hi - lo) / (float)hi;
-    float t = constrain((sat - 0.35f) / 0.30f, 0.0f, 1.0f);
-    float sub = lo * t;
-    float k = 255.0f / (hi - sub);
-    out.r = (short)((r - sub) * k + 0.5f);
-    out.g = (short)((g - sub) * k + 0.5f);
-    out.b = (short)((b - sub) * k + 0.5f);
+    int sub = lo * constrain(((hi - lo) << 8) / hi - 90, 0, 64) >> 6; // fades in from 35% to 60% saturation
+    int d = hi - sub;
+    out.r = (short)((r - sub) * 255 / d);
+    out.g = (short)((g - sub) * 255 / d);
+    out.b = (short)((b - sub) * 255 / d);
     out.ww = 0;
     out.cw = 0;
     snprintf(out.RGBhex, sizeof(out.RGBhex), "#%02X%02X%02X", out.r, out.g, out.b);
@@ -386,8 +384,6 @@ void extractWhite(int &r, int &g, int &b, int &ww, int &cw)
     int w = min(r, min(g, b));
     if (w <= 0 || hi <= 0)
         return;
-    float share = constrain(((float)w / hi - 0.4f) / 0.4f, 0.0f, 1.0f); // 0 below 40%, full from 80%
-    w = (int)(w * share);
     if (w <= 0)
         return;
     r -= w;
@@ -955,7 +951,7 @@ void updateleds()
             long wifiNow = WiFi.RSSI();
             if (printerConfig.debugingchange)
             {
-                LogSerial.print(F("WiFi Strength Visialisation, display LEDs for: "));
+                LogSerial.print(F("WiFi strength, LEDs for: "));
                 LogSerial.println(wifiNow);
             }
             if (wifiNow >= -50)
